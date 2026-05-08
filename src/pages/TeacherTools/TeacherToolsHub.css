@@ -1,0 +1,84 @@
+.tools-hub-container {
+  padding: 0;
+}
+
+.hub-header {
+  margin-bottom: 2rem;
+}
+
+.hub-header h1 {
+  color: var(--primary-blue);
+  margin-bottom: 0.5rem;
+  font-size: 1.8rem;
+}
+
+.hub-header p {
+  color: var(--gray-600);
+  font-size: 1rem;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.tool-card {
+  background: var(--white);
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.03);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  border-top: 4px solid var(--accent-color);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+}
+
+.tool-card:hover {
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+
+.tool-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.tool-info h3 {
+  margin-bottom: 0.6rem;
+  color: var(--gray-800);
+  font-size: 1.3rem;
+}
+
+.tool-info p {
+  color: var(--gray-600);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.tool-footer {
+  margin-top: auto;
+  font-weight: 500;
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+/* Dark Mode support */
+body.dark .tool-card {
+  background: #2d2d2d;
+  box-shadow: none;
+  border-color: #444;
+}
+
+body.dark .tool-info h3 {
+  color: #f0f0f0;
+}
+
+body.dark .tool-info p {
+  color: #bbbbbb;
+}

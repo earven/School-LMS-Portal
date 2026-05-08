@@ -1,0 +1,191 @@
+/* src/pages/SectionsPage.css */
+
+.sections-container {
+    padding: 20px;
+    background-color: var(--color-background-soft);
+    border-radius: 8px;
+    box-shadow: var(--shadow-sm);
+}
+
+.sections-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.sections-header h1 {
+    font-size: 1.8rem;
+    color: var(--color-heading);
+}
+
+.sections-content {
+    display: flex;
+    gap: 20px;
+}
+
+.table-wrapper {
+    flex: 2;
+    overflow-x: auto;
+    background-color: var(--color-background);
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+}
+
+.sections-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.sections-table th,
+.sections-table td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.sections-table th {
+    background-color: var(--color-background-mute);
+    color: var(--color-text);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.9em;
+}
+
+.sections-table tbody tr {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.sections-table tbody tr:hover {
+    background-color: var(--color-background-hover);
+}
+
+.sections-table tbody tr.selected {
+    background-color: var(--color-primary-light);
+    color: var(--color-white);
+}
+
+.sections-table tbody tr.selected td {
+    color: var(--color-white);
+}
+
+.sections-table .delete-btn-outline {
+    background: none;
+    border: 1px solid var(--color-danger);
+    color: var(--color-danger);
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.85em;
+}
+
+.sections-table .delete-btn-outline:hover {
+    background-color: var(--color-danger);
+    color: var(--color-white);
+}
+
+.section-detail-panel {
+    flex: 1;
+    background-color: var(--color-background);
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    padding: 20px;
+    max-width: 400px; /* Adjust as needed */
+}
+
+.detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.detail-header h2 {
+    font-size: 1.5rem;
+    color: var(--color-heading);
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--color-text-light);
+    cursor: pointer;
+}
+
+.detail-body .form-group {
+    margin-bottom: 15px;
+}
+
+.detail-body label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: var(--color-text);
+}
+
+.detail-body input[type="text"],
+.detail-body select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 5px;
+    background-color: var(--color-input-bg);
+    color: var(--color-input-text);
+}
+
+.detail-body .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 400;
+}
+
+.detail-body .edit-actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+}
+
+.detail-body .save-btn,
+.detail-body .cancel-btn {
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.detail-body .save-btn {
+    background-color: var(--color-primary);
+    color: var(--color-white);
+    border: none;
+}
+
+.detail-body .save-btn:hover {
+    background-color: var(--color-primary-dark);
+}
+
+.detail-body .cancel-btn {
+    background-color: var(--color-background-mute);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+}
+
+.detail-body .cancel-btn:hover {
+    background-color: var(--color-background-hover);
+}
+
+.loading-indicator, .error-message {
+    padding: 20px;
+    text-align: center;
+    font-size: 1.1em;
+    color: var(--color-text-light);
+}
+
+.error-message {
+    color: var(--color-danger);
+}
