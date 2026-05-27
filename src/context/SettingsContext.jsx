@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const SettingsContext = createContext(null);
 
+const FONT_SIZE_MAP = {
+  'standard': '100%',
+  'medium': '93.75%',
+  'compact': '87.5%',
+  'extra-compact': '81.25%'
+};
+
 export const SettingsProvider = ({ children }) => {
   const defaultSettings = {
     // School Identity
@@ -28,7 +35,9 @@ export const SettingsProvider = ({ children }) => {
     // Appearance Settings
     primaryColor: '#2563eb',
     theme: 'light',
-    logoPosition: 'left'
+    fontSize: 'compact',
+    logoPosition: 'left',
+    heroBackground: '' // Base64 or URL
   };
 
   const [settings, setSettings] = useState(() => {
@@ -53,16 +62,30 @@ export const SettingsProvider = ({ children }) => {
   });
 
   const updateSettings = (newSettings) => {
-    const updated = { ...settings, ...newSettings };
-    setSettings(updated);
-    localStorage.setItem('schoolSettings', JSON.stringify(updated));
-    
-    // Apply appearance settings immediately
-    if (newSettings.primaryColor) {
-      document.documentElement.style.setProperty('--primary-blue', newSettings.primaryColor);
-    }
-    if (newSettings.theme) {
-      document.body.className = newSettings.theme;
+    try {
+      const updated = { ...settings, ...newSettings };
+      localStorage.setItem('schoolSettings', JSON.stringify(updated));
+      setSettings(updated);
+      
+      // Apply appearance settings immediately
+      if (newSettings.primaryColor) {
+        document.documentElement.style.setProperty('--primary-blue', newSettings.primaryColor);
+      }
+      if (newSettings.theme) {
+        document.body.className = newSettings.theme;
+      }
+      if (newSettings.fontSize) {
+        document.documentElement.style.fontSize = FONT_SIZE_MAP[newSettings.fontSize] || '87.5%';
+      }
+      return true;
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      if (error.name === 'QuotaExceededError') {
+        alert("Storage limit exceeded. The image sizes might still be too large. Please use smaller images.");
+      } else {
+        alert("Failed to save settings: " + error.message);
+      }
+      return false;
     }
   };
 
@@ -70,6 +93,7 @@ export const SettingsProvider = ({ children }) => {
     // Apply initial settings
     document.documentElement.style.setProperty('--primary-blue', settings.primaryColor);
     document.body.className = settings.theme;
+    document.documentElement.style.fontSize = FONT_SIZE_MAP[settings.fontSize || 'compact'] || '87.5%';
   }, []);
 
   return (

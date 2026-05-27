@@ -93,6 +93,28 @@
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
 }
 
+.clear-filters-btn {
+  background-color: var(--gray-100);
+  color: var(--gray-600);
+  border: 1px solid var(--gray-300);
+  padding: 0 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.clear-filters-btn:hover {
+  background-color: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
 .students-content {
   display: flex;
   gap: 1.5rem; /* Reduced gap */
@@ -139,6 +161,24 @@
 .students-table tr.selected td {
   background-color: var(--light-blue);
   border-left: 3px solid var(--primary-blue); /* Thinner border */
+}
+
+.gender-badge {
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.gender-badge.male {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.gender-badge.female {
+  background-color: #fce7f3;
+  color: #be185d;
 }
 
 .badge {

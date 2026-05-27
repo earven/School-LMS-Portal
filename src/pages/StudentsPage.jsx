@@ -1,18 +1,29 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { buildFullName } from '../utils/personnelName';
 import { useStudents } from '../context/StudentContext';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useSections } from '../context/SectionContext'; // Import useSections
+import { useSections } from '../context/SectionContext';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import './StudentsPage.css';
 
 const StudentsPage = () => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = ['admin', 'system_admin'].includes(user?.role);
   const { students, loading, error, updateStudent, addStudent, addBulkStudents, deleteStudent } = useStudents();
-  const { sections, loading: sectionsLoading, error: sectionsError } = useSections(); // Fetch sections
+  const { sections, loading: sectionsLoading, error: sectionsError } = useSections();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGrade, setFilterGrade] = useState('All');
-  const [filterSection, setFilterSection] = useState('All'); // New filter for sections
+  const [filterSection, setFilterSection] = useState(searchParams.get('sectionId') || 'All');
+  
+  useEffect(() => {
+    const sectionId = searchParams.get('sectionId');
+    if (sectionId) {
+      setFilterSection(sectionId);
+    }
+  }, [searchParams]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -20,7 +31,11 @@ const StudentsPage = () => {
 
   const [newStudentForm, setNewStudentForm] = useState({
     id: '',
-    fullName: '',
+    lastName: '',
+    firstName: '',
+    middleName: '',
+    extension: '', // e.g., Jr., III
+    gender: 'Male',
     address: '',
     gradeLevel: 'Grade 7',
     sectionId: '',
@@ -30,78 +45,190 @@ const StudentsPage = () => {
 
   const assignedSections = useMemo(() => {
     if (isAdmin) return sections;
-    if (user?.assignedSections) {
-      return sections.filter(section => user.assignedSections.includes(section.id));
-    }
-    return [];
+    return sections.filter(section => section.adviserId === user?.uid);
   }, [sections, user, isAdmin]);
 
   const filteredStudents = useMemo(() => {
-    let filtered = students;
+    let filtered = [...students];
 
-    // Filter by assigned sections for teachers
-    if (!isAdmin && user?.assignedSections) {
-      filtered = filtered.filter(student => user.assignedSections.includes(student.sectionId));
+    // Security: Non-admins should only see students in their assigned sections
+    if (!isAdmin) {
+      const assignedIds = assignedSections.map(s => s.id);
+      filtered = filtered.filter(student => assignedIds.includes(student.sectionId));
     }
 
     if (searchTerm) {
       filtered = filtered.filter(student =>
-        student.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.id.toLowerCase().includes(searchTerm.toLowerCase())
+        (student.lastName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (student.firstName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (student.middleName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (student.id || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
     if (filterGrade !== 'All') {
-      filtered = filtered.filter(student => student.gradeLevel === filterGrade);
+      // Normalize comparison (e.g., 'Grade 7' vs '7')
+      filtered = filtered.filter(student => {
+        const sGrade = (student.gradeLevel || '').replace(/\D/g, '');
+        const fGrade = filterGrade.replace(/\D/g, '');
+        return sGrade === fGrade;
+      });
     }
 
     if (filterSection !== 'All') {
       filtered = filtered.filter(student => student.sectionId === filterSection);
     }
 
-    return filtered;
-  }, [students, searchTerm, filterGrade, filterSection, isAdmin, user]);
+    // Sort by Gender (Male first, then Female), then by Last Name
+    return filtered.sort((a, b) => {
+      if (a.gender !== b.gender) {
+        return a.gender === 'Male' ? -1 : 1;
+      }
+      return (a.lastName || '').localeCompare(b.lastName || '');
+    });
+  }, [students, searchTerm, filterGrade, filterSection]);
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterGrade('All');
+    setFilterSection('All');
+  };
 
   const handleRowClick = (student) => {
     setSelectedStudent(student);
-    setEditForm(student);
+    setEditForm({
+      ...student,
+      lastName: student.lastName || '',
+      firstName: student.firstName || '',
+      middleName: student.middleName || '',
+      extension: student.extension || '',
+      gender: student.gender || 'Male'
+    });
     setIsEditing(false);
     setIsAdding(false);
   };
 
   const handleEditChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setEditForm(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    setEditForm(prev => {
+      const updates = { [name]: type === 'checkbox' ? checked : value };
+      if (name === 'sectionId') {
+        const matchedSection = sections.find(s => s.id === value);
+        if (matchedSection) {
+          updates.gradeLevel = matchedSection.gradeLevel;
+        }
+      }
+      return { ...prev, ...updates };
+    });
   };
 
   const handleNewStudentChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setNewStudentForm(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    
+    // Validation for LRN (id) - digits only and max 12
+    if (name === 'id') {
+      const numericValue = value.replace(/\D/g, '');
+      if (numericValue.length > 12) return;
+      setNewStudentForm(prev => ({
+        ...prev,
+        id: numericValue
+      }));
+      return;
+    }
+
+    setNewStudentForm(prev => {
+      const updates = { [name]: type === 'checkbox' ? checked : value };
+      if (name === 'sectionId') {
+        const matchedSection = sections.find(s => s.id === value);
+        if (matchedSection) {
+          updates.gradeLevel = matchedSection.gradeLevel;
+        }
+      }
+      return { ...prev, ...updates };
+    });
+  };
+
+  const formatName = (str) => {
+    if (!str) return '';
+    return str.trim().split(/\s+/).map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    ).join(' ');
   };
 
   const handleSave = async () => {
-    await updateStudent(editForm);
-    setSelectedStudent(editForm);
+    const isNameDuplicate = students.some(s => 
+      s.id !== editForm.id &&
+      (s.firstName || '').toLowerCase().trim() === (editForm.firstName || '').toLowerCase().trim() && 
+      (s.lastName || '').toLowerCase().trim() === (editForm.lastName || '').toLowerCase().trim()
+    );
+
+    if (isNameDuplicate) {
+      const proceed = window.confirm(`Another learner named ${editForm.firstName} ${editForm.lastName} already exists. Are you sure you want to proceed?`);
+      if (!proceed) return;
+    }
+
+    const matchedSection = sections.find(s => s.id === editForm.sectionId);
+    const finalStudentData = {
+      ...editForm,
+      firstName: formatName(editForm.firstName),
+      lastName: formatName(editForm.lastName),
+      middleName: formatName(editForm.middleName),
+      gradeLevel: matchedSection ? matchedSection.gradeLevel : editForm.gradeLevel
+    };
+
+    await updateStudent(finalStudentData);
+    setSelectedStudent(finalStudentData);
     setIsEditing(false);
     alert('Student profile updated successfully!');
   };
 
   const handleAddNew = async () => {
-    if (!newStudentForm.id || !newStudentForm.fullName || !newStudentForm.sectionId) {
-      alert('Please fill in at least the Student ID, Full Name, and Section.');
+    if (!newStudentForm.id || !newStudentForm.lastName || !newStudentForm.firstName || !newStudentForm.sectionId) {
+      alert('Please fill in at least the LRN, Last Name, First Name, and Section.');
       return;
     }
-    await addStudent(newStudentForm);
+    
+    if (newStudentForm.id.length !== 12) {
+      alert('LRN must be exactly 12 digits.');
+      return;
+    }
+
+    // Duplicate LRN Check
+    const isLrnDuplicate = students.some(s => s.id === newStudentForm.id);
+    if (isLrnDuplicate) {
+      alert(`A learner with LRN ${newStudentForm.id} already exists in the system.`);
+      return;
+    }
+
+    // Duplicate Name Check
+    const isNameDuplicate = students.some(s => 
+      (s.firstName || '').toLowerCase().trim() === (newStudentForm.firstName || '').toLowerCase().trim() && 
+      (s.lastName || '').toLowerCase().trim() === (newStudentForm.lastName || '').toLowerCase().trim()
+    );
+
+    if (isNameDuplicate) {
+      const proceed = window.confirm(`A learner named ${newStudentForm.firstName} ${newStudentForm.lastName} already exists. Are you sure you want to proceed?`);
+      if (!proceed) return;
+    }
+
+    const matchedSection = sections.find(s => s.id === newStudentForm.sectionId);
+    const finalStudentData = {
+      ...newStudentForm,
+      firstName: formatName(newStudentForm.firstName),
+      lastName: formatName(newStudentForm.lastName),
+      middleName: formatName(newStudentForm.middleName),
+      gradeLevel: matchedSection ? matchedSection.gradeLevel : newStudentForm.gradeLevel
+    };
+
+    await addStudent(finalStudentData);
     setIsAdding(false);
     setNewStudentForm({
       id: '',
-      fullName: '',
+      lastName: '',
+      firstName: '',
+      middleName: '',
+      extension: '',
+      gender: 'Male',
       address: '',
       gradeLevel: 'Grade 7',
       sectionId: '',
@@ -112,7 +239,7 @@ const StudentsPage = () => {
   };
 
   const generateStudentCSVTemplate = () => {
-    const headers = ['id', 'fullName', 'address', 'gradeLevel', 'sectionId', 'is4Ps', 'nutritionalStatus'];
+    const headers = ['id', 'lastName', 'firstName', 'middleName', 'extension', 'gender', 'address', 'gradeLevel', 'sectionId', 'is4Ps', 'nutritionalStatus'];
     const csvContent = headers.join(',');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -133,65 +260,167 @@ const StudentsPage = () => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         const text = e.target.result;
-        const lines = text.split('\n').filter(line => line.trim() !== '');
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/ /g, ''));
+        const cleanText = text.replace(/^\ufeff/, '');
+        const lines = cleanText.split('\n').filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+          alert('CSV file is empty or only contains headers.');
+          return;
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, '').replace(/[._]/g, '').replace(/ /g, ''));
+        console.log('Detected Headers:', headers);
 
         const studentsToBulkAdd = [];
+        let rejectedCount = 0;
+        let invalidLrnCount = 0;
+        let permissionDeniedCount = 0;
+        let duplicateCount = 0;
+        const seenInCsv = new Set();
+
         for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim());
-          if (values.length !== headers.length) {
-            console.warn(`Skipping malformed row: ${lines[i]}`);
-            continue;
+          // ... [line parsing logic remains the same]
+          const values = [];
+          let current = "";
+          let inQuotes = false;
+          const line = lines[i];
+          
+          for (let char of line) {
+            if (char === '"') inQuotes = !inQuotes;
+            else if (char === ',' && !inQuotes) { values.push(current.trim()); current = ""; }
+            else current += char;
           }
+          values.push(current.trim());
 
           const studentData = {};
           headers.forEach((header, index) => {
-            let value = values[index];
+            let value = values[index] || '';
             if (value.startsWith('"') && value.endsWith('"')) {
               value = value.substring(1, value.length - 1);
             }
-
-            if (header === 'is4ps') {
-              studentData[header] = value.toLowerCase() === 'yes' || value.toLowerCase() === 'true';
-            } else if (header === 'id') {
-              studentData[header] = value;
+            
+            // Map header names
+            let key = header;
+            if (['id', 'lrn', 'studentid', 'studentnumber', 'stno', 'learnerreferencenumber'].includes(header)) key = 'id';
+            if (['section', 'sectionname', 'sectionid', 'class'].includes(header)) key = 'sectionId';
+            if (['grade', 'gradelevel', 'yearlevel', 'level'].includes(header)) key = 'gradeLevel';
+            if (['lastname', 'surname', 'familyname'].includes(header)) key = 'lastName';
+            if (['firstname', 'givenname'].includes(header)) key = 'firstName';
+            
+            if (key === 'is4ps' || key === '4ps' || key === 'pantawid') {
+              studentData['is4Ps'] = value.toLowerCase() === 'yes' || value.toLowerCase() === 'true' || value === '1';
             } else {
-              studentData[header] = value;
+              studentData[key] = value;
             }
           });
 
-          // Basic validation for required fields
-          if (studentData.id && studentData.fullname) {
+          // Validation & Normalization
+          const id = studentData.id || '';
+          const lastName = studentData.lastName || '';
+          const firstName = studentData.firstName || '';
+
+          if (id && lastName && firstName) {
+            // 1. Check for duplicates within the CSV itself
+            if (seenInCsv.has(id)) {
+              console.warn(`Duplicate LRN in CSV: ${id}`);
+              duplicateCount++;
+              continue;
+            }
+            seenInCsv.add(id);
+
+            // 2. Check for duplicates in the existing masterlist
+            const exists = students.some(s => s.id === id);
+            if (exists) {
+              console.warn(`LRN ${id} already exists in masterlist.`);
+              duplicateCount++;
+              continue;
+            }
+
+            // Try to resolve sectionId from name if possible
+            let resolvedSectionId = studentData.sectionId || '';
+            const matchedSection = sections.find(s => 
+              s.name.toLowerCase() === resolvedSectionId.toLowerCase() || 
+              s.id.toLowerCase() === resolvedSectionId.toLowerCase()
+            );
+            
+            if (!matchedSection) {
+              // Reject students mapped to non-existent sections
+              rejectedCount++;
+              continue;
+            }
+            
+            resolvedSectionId = matchedSection.id;
+
+            // PERMISSION CHECK
+            if (!isAdmin) {
+              const isAdviser = assignedSections.some(s => s.id === resolvedSectionId);
+              if (!isAdviser) {
+                permissionDeniedCount++;
+                continue;
+              }
+            }
+
+            if (id.length !== 12) {
+              invalidLrnCount++;
+              continue;
+            }
+
             studentsToBulkAdd.push({
-              id: studentData.id,
-              fullName: studentData.fullname,
+              id: id,
+              lastName: formatName(lastName),
+              firstName: formatName(firstName),
+              middleName: formatName(studentData.middleName),
+              extension: studentData.extension || '',
+              gender: studentData.gender || 'Male',
               address: studentData.address || '',
-              gradeLevel: studentData.gradelevel || 'Grade 7',
-              sectionId: studentData.sectionid || '', // Changed from 'section' to 'sectionId'
-              is4Ps: studentData.is4ps || false,
-              nutritionalStatus: studentData.nutritionalstatus || 'Normal',
+              gradeLevel: studentData.gradeLevel || 'Grade 7',
+              sectionId: resolvedSectionId,
+              is4Ps: !!studentData.is4Ps,
+              nutritionalStatus: studentData.nutritionalStatus || 'Normal',
             });
           } else {
-            console.warn(`Skipping student with missing ID or Full Name: ${JSON.stringify(studentData)}`);
+            rejectedCount++;
           }
         }
-        await addBulkStudents(studentsToBulkAdd);
-        setShowBulkUpload(false);
-        alert(`${studentsToBulkAdd.length} students added successfully from CSV!`);
+
+        if (studentsToBulkAdd.length > 0) {
+          try {
+            await addBulkStudents(studentsToBulkAdd);
+            setShowBulkUpload(false);
+            
+            let message = `SUCCESS! Added ${studentsToBulkAdd.length} new learners.`;
+            if (duplicateCount > 0) message += `\n\n⚠️ ${duplicateCount} learners were SKIPPED because their LRN already exists in the system.`;
+            if (permissionDeniedCount > 0) message += `\n\n⛔ ${permissionDeniedCount} learners were skipped (Permission Denied).`;
+            if (invalidLrnCount > 0) message += `\n\n❌ ${invalidLrnCount} learners had invalid LRN lengths.`;
+            
+            alert(message);
+          } catch (err) {
+            console.error('Bulk add error:', err);
+            alert(`UPLOAD FAILED: ${err.message}`);
+          }
+        } else {
+          let message = 'No new learner data found to add.';
+          if (duplicateCount > 0) message += `\n\n⚠️ All learners in the CSV already exist in the masterlist.`;
+          alert(message);
+        }
+        event.target.value = null;
       };
       reader.readAsText(file);
     }
   };
 
   const handleExportCSV = () => {
-    const headers = ['Student ID', 'Full Name', 'Grade Level', 'Section ID', 'Address', '4Ps', 'Nutritional Status']; // Changed header
+    const headers = ['LRN', 'Last Name', 'First Name', 'Middle Name', 'Extension', 'Gender', 'Grade Level', 'Section ID', 'Address', '4Ps', 'Nutritional Status'];
     const csvContent = [
       headers.join(','),
       ...filteredStudents.map(s => [
         s.id,
-        `"${s.fullName}"`,
+        `"${s.lastName}"`,
+        `"${s.firstName}"`,
+        `"${s.middleName}"`,
+        `"${s.extension}"`,
+        s.gender,
         s.gradeLevel,
-        s.sectionId, // Changed from 'section' to 'sectionId'
+        s.sectionId,
         `"${s.address}"`,
         s.is4Ps ? 'Yes' : 'No',
         s.nutritionalStatus
@@ -229,9 +458,19 @@ const StudentsPage = () => {
     <div className="students-container">
       <div className="students-header">
         <div className="header-title-row">
-          <h1>Student Management</h1>
+          <h1>Learner Management</h1>
           {(isAdmin || assignedSections.length > 0) && (
             <div className="header-actions">
+              {isAdmin && (
+                <>
+                  <button className="export-btn-outline" onClick={() => navigate('/sections?view=JHS')}>
+                    ← JHS Sections
+                  </button>
+                  <button className="export-btn-outline" onClick={() => navigate('/sections?view=SHS')}>
+                    ← SHS Sections
+                  </button>
+                </>
+              )}
               <button className="export-btn-outline" onClick={handleExportCSV}>
                 📥 Export CSV
               </button>
@@ -239,8 +478,39 @@ const StudentsPage = () => {
                 setIsAdding(true);
                 setSelectedStudent(null);
                 setShowBulkUpload(false);
+                
+                if (filterSection !== 'All') {
+                  const matchedSection = sections.find(s => s.id === filterSection);
+                  setNewStudentForm({
+                    id: '',
+                    lastName: '',
+                    firstName: '',
+                    middleName: '',
+                    extension: '',
+                    gender: 'Male',
+                    address: '',
+                    gradeLevel: matchedSection ? matchedSection.gradeLevel : 'Grade 7',
+                    sectionId: filterSection,
+                    is4Ps: false,
+                    nutritionalStatus: 'Normal'
+                  });
+                } else {
+                  setNewStudentForm({
+                    id: '',
+                    lastName: '',
+                    firstName: '',
+                    middleName: '',
+                    extension: '',
+                    gender: 'Male',
+                    address: '',
+                    gradeLevel: 'Grade 7',
+                    sectionId: '',
+                    is4Ps: false,
+                    nutritionalStatus: 'Normal'
+                  });
+                }
               }}>
-                + Add New Student
+                + Add New Learner
               </button>
               <button className="bulk-upload-btn" onClick={() => {
                 setShowBulkUpload(true);
@@ -255,34 +525,48 @@ const StudentsPage = () => {
         <div className="search-filter-bar">
           <input 
             type="text" 
-            placeholder="Search by name or ID..." 
+            placeholder="Search by name or LRN..." 
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input"
           />
-          <select 
-            value={filterGrade} 
-            onChange={(e) => setFilterGrade(e.target.value)}
-            className="filter-select"
-          >
-            <option value="All">All Grade Levels</option>
-            <option value="Grade 7">Grade 7</option>
-            <option value="Grade 8">Grade 8</option>
-            <option value="Grade 9">Grade 9</option>
-            <option value="Grade 10">Grade 10</option>
-            <option value="Grade 11">Grade 11</option>
-            <option value="Grade 12">Grade 12</option>
-          </select>
-          <select 
-            value={filterSection} 
-            onChange={(e) => setFilterSection(e.target.value)}
-            className="filter-select"
-          >
-            <option value="All">All Sections</option>
-            {assignedSections.map(section => (
-              <option key={section.id} value={section.id}>{section.name}</option>
-            ))}
-          </select>
+          {isAdmin && (
+            <>
+              <select 
+                value={filterGrade} 
+                onChange={(e) => {
+                  setFilterGrade(e.target.value);
+                  setFilterSection('All');
+                }}
+                className="filter-select"
+              >
+                <option value="All">All Grade Levels</option>
+                <option value="Grade 7">Grade 7</option>
+                <option value="Grade 8">Grade 8</option>
+                <option value="Grade 9">Grade 9</option>
+                <option value="Grade 10">Grade 10</option>
+                <option value="Grade 11">Grade 11</option>
+                <option value="Grade 12">Grade 12</option>
+              </select>
+              <select 
+                value={filterSection} 
+                onChange={(e) => setFilterSection(e.target.value)}
+                className="filter-select"
+              >
+                <option value="All">All Sections</option>
+                {assignedSections
+                  .filter(section => filterGrade === 'All' || section.gradeLevel === filterGrade)
+                  .map(section => (
+                  <option key={section.id} value={section.id}>{section.name}</option>
+                ))}
+              </select>
+            </>
+          )}
+          {(searchTerm || (isAdmin && (filterGrade !== 'All' || filterSection !== 'All'))) && (
+            <button className="clear-filters-btn" onClick={clearFilters}>
+              ✕ Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -291,10 +575,13 @@ const StudentsPage = () => {
           <table className="students-table">
             <thead>
               <tr>
-                <th>Student ID</th>
-                <th>Full Name</th>
-                <th>Grade Level</th>
-                <th>Section ID</th> {/* Changed header */}
+                <th>LRN</th>
+                <th>Last Name</th>
+                <th>First Name</th>
+                <th>Middle Name</th>
+                <th>Gender</th>
+                <th>Grade & Section</th>
+                <th>Status</th>
                 <th>4Ps</th>
               </tr>
             </thead>
@@ -304,9 +591,24 @@ const StudentsPage = () => {
                 return (
                   <tr key={student.id} onClick={() => handleRowClick(student)} className={selectedStudent?.id === student.id ? 'selected' : ''}>
                     <td>{student.id}</td>
-                    <td>{student.fullName}</td>
-                    <td>{student.gradeLevel}</td>
-                    <td>{studentSection ? studentSection.name : student.sectionId || 'N/A'}</td>
+                    <td style={{ fontWeight: 600 }}>{student.lastName}</td>
+                    <td>{student.firstName}</td>
+                    <td>{student.middleName}</td>
+                    <td>
+                      <span className={`gender-badge ${student.gender?.toLowerCase()}`}>
+                        {student.gender}
+                      </span>
+                    </td>
+                    <td>{student.gradeLevel} - {studentSection ? studentSection.name : student.sectionId || 'N/A'}</td>
+                    <td>
+                      <span className="badge" style={{ 
+                        background: (!student.status || student.status === 'Active') ? '#dcfce7' : '#fee2e2',
+                        color: (!student.status || student.status === 'Active') ? '#166534' : '#991b1b',
+                        border: `1px solid ${(!student.status || student.status === 'Active') ? '#bbf7d0' : '#fecaca'}`
+                      }}>
+                        {student.status || 'Active'}
+                      </span>
+                    </td>
                     <td>{student.is4Ps ? <span className="badge is-4ps">Yes</span> : <span className="badge">No</span>}</td>
                   </tr>
                 );
@@ -318,7 +620,7 @@ const StudentsPage = () => {
         {selectedStudent && (
           <div className="student-detail-panel">
             <div className="detail-header">
-              <h2>Student Profile</h2>
+              <h2>Learner Profile</h2>
               <button className="close-btn" onClick={() => setSelectedStudent(null)}>×</button>
             </div>
             
@@ -326,16 +628,33 @@ const StudentsPage = () => {
               {!isEditing ? (
                 <div className="profile-view">
                   <div className="profile-group">
-                    <label>Student ID:</label>
+                    <label>LRN:</label>
                     <p>{selectedStudent.id}</p>
                   </div>
                   <div className="profile-group">
                     <label>Full Name:</label>
-                    <p>{selectedStudent.fullName}</p>
+                    <p>
+                       {buildFullName({
+                         lastName: selectedStudent.lastName,
+                         firstName: selectedStudent.firstName,
+                         middleName: selectedStudent.middleName,
+                         nameExtension: selectedStudent.extension
+                       })}
+                    </p>
+                  </div>
+                  <div className="profile-group">
+                    <label>Gender:</label>
+                    <p>{selectedStudent.gender}</p>
                   </div>
                   <div className="profile-group">
                     <label>Grade & Section:</label>
                     <p>{selectedStudent.gradeLevel} - {sections.find(s => s.id === selectedStudent.sectionId)?.name || selectedStudent.sectionId}</p>
+                  </div>
+                  <div className="profile-group">
+                    <label>Enrollment Status:</label>
+                    <p style={{ fontWeight: 'bold', color: (!selectedStudent.status || selectedStudent.status === 'Active') ? '#166534' : '#991b1b' }}>
+                      {selectedStudent.status || 'Active'}
+                    </p>
                   </div>
                   <div className="profile-group">
                     <label>Address:</label>
@@ -358,9 +677,32 @@ const StudentsPage = () => {
                 </div>
               ) : (
                 <div className="profile-edit">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Last Name</label>
+                      <input type="text" name="lastName" value={editForm.lastName} onChange={handleEditChange} />
+                    </div>
+                    <div className="form-group">
+                      <label>First Name</label>
+                      <input type="text" name="firstName" value={editForm.firstName} onChange={handleEditChange} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Middle Name</label>
+                      <input type="text" name="middleName" value={editForm.middleName} onChange={handleEditChange} />
+                    </div>
+                    <div className="form-group">
+                      <label>Extension</label>
+                      <input type="text" name="extension" value={editForm.extension} onChange={handleEditChange} placeholder="Jr., III, etc." />
+                    </div>
+                  </div>
                   <div className="form-group">
-                    <label>Full Name</label>
-                    <input type="text" name="fullName" value={editForm.fullName} onChange={handleEditChange} />
+                    <label>Gender</label>
+                    <select name="gender" value={editForm.gender} onChange={handleEditChange}>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
                   </div>
                   <div className="form-group">
                     <label>Address</label>
@@ -417,19 +759,49 @@ const StudentsPage = () => {
         {isAdding && (
           <div className="student-detail-panel">
             <div className="detail-header">
-              <h2>Add New Student</h2>
+              <h2>Add New Learner</h2>
               <button className="close-btn" onClick={() => setIsAdding(false)}>×</button>
             </div>
             
             <div className="detail-body">
               <div className="profile-edit">
                 <div className="form-group">
-                  <label>Student ID</label>
-                  <input type="text" name="id" value={newStudentForm.id} onChange={handleNewStudentChange} placeholder="STUXXXX" />
+                  <label>LRN</label>
+                  <input 
+                    type="text" 
+                    name="id" 
+                    value={newStudentForm.id} 
+                    onChange={handleNewStudentChange} 
+                    placeholder="12-digit number" 
+                    maxLength={12}
+                  />
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Last Name</label>
+                    <input type="text" name="lastName" value={newStudentForm.lastName} onChange={handleNewStudentChange} placeholder="Dela Cruz" />
+                  </div>
+                  <div className="form-group">
+                    <label>First Name</label>
+                    <input type="text" name="firstName" value={newStudentForm.firstName} onChange={handleNewStudentChange} placeholder="Juan" />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Middle Name</label>
+                    <input type="text" name="middleName" value={newStudentForm.middleName} onChange={handleNewStudentChange} />
+                  </div>
+                  <div className="form-group">
+                    <label>Extension</label>
+                    <input type="text" name="extension" value={newStudentForm.extension} onChange={handleNewStudentChange} placeholder="Jr., III" />
+                  </div>
                 </div>
                 <div className="form-group">
-                  <label>Full Name</label>
-                  <input type="text" name="fullName" value={newStudentForm.fullName} onChange={handleNewStudentChange} placeholder="Enter full name" />
+                  <label>Gender</label>
+                  <select name="gender" value={newStudentForm.gender} onChange={handleNewStudentChange}>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
                 </div>
                 <div className="form-group">
                   <label>Address</label>
@@ -438,7 +810,12 @@ const StudentsPage = () => {
                 <div className="form-row">
                   <div className="form-group">
                     <label>Grade Level</label>
-                    <select name="gradeLevel" value={newStudentForm.gradeLevel} onChange={handleNewStudentChange}>
+                    <select 
+                      name="gradeLevel" 
+                      value={newStudentForm.gradeLevel} 
+                      onChange={handleNewStudentChange}
+                      disabled={filterSection !== 'All'}
+                    >
                       <option value="Grade 7">Grade 7</option>
                       <option value="Grade 8">Grade 8</option>
                       <option value="Grade 9">Grade 9</option>
@@ -449,7 +826,12 @@ const StudentsPage = () => {
                   </div>
                   <div className="form-group">
                     <label>Section</label>
-                    <select name="sectionId" value={newStudentForm.sectionId} onChange={handleNewStudentChange}>
+                    <select 
+                      name="sectionId" 
+                      value={newStudentForm.sectionId} 
+                      onChange={handleNewStudentChange}
+                      disabled={filterSection !== 'All'}
+                    >
                       <option value="">Select Section</option>
                       {assignedSections.map(section => (
                         <option key={section.id} value={section.id}>{section.name}</option>
@@ -474,7 +856,7 @@ const StudentsPage = () => {
                   </label>
                 </div>
                 <div className="edit-actions">
-                  <button className="save-btn" onClick={handleAddNew}>Add Student</button>
+                  <button className="save-btn" onClick={handleAddNew}>Add Learner</button>
                   <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
                 </div>
               </div>
@@ -485,19 +867,16 @@ const StudentsPage = () => {
         {showBulkUpload && (
           <div className="student-detail-panel">
             <div className="detail-header">
-              <h2>Bulk Upload Students</h2>
+              <h2>Bulk Upload Learners</h2>
               <button className="close-btn" onClick={() => setShowBulkUpload(false)}>×</button>
             </div>
             <div className="detail-body">
-              <p>Upload a CSV file containing student data. The CSV should have the following headers (case-insensitive):</p>
+              <p>Upload a CSV file containing student data. Headers should include:</p>
               <ul>
-                <li>`id` (Student ID)</li>
-                <li>`fullName` (Full Name)</li>
-                <li>`address`</li>
-                <li>`gradeLevel` (e.g., "Grade 7")</li>
-                <li>`sectionId`</li> {/* Changed header */}
-                <li>`is4Ps` (true/false or yes/no)</li>
-                <li>`nutritionalStatus` (e.g., "Normal")</li>
+                <li>`id` (LRN)</li>
+                <li>`lastName`, `firstName`, `middleName`, `extension`</li>
+                <li>`gender` (Male/Female)</li>
+                <li>`address`, `gradeLevel`, `sectionId`, `is4Ps`, `nutritionalStatus`</li>
               </ul>
               <button className="download-template-btn" onClick={generateStudentCSVTemplate}>
                 Download CSV Template

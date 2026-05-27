@@ -1,32 +1,124 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is admin
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function getRole() {
+      return isSignedIn() ? getUserData().role : 'guest';
+    }
+    
     function isAdmin() {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isSignedIn() && (getRole() == 'admin' || getRole() == 'system_admin');
     }
-
-    // Helper function to check if user is teacher
+    
     function isTeacher() {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+      return isSignedIn() && getRole() == 'teacher';
     }
 
+    // Users/Personnel collection
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin() || request.auth.uid == userId;
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Allow users to update their own profile (limited fields)
+      allow update: if isSignedIn() && request.auth.uid == userId 
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'assignedSections']);
     }
-
+    
+    // Students collection
+    match /students/{studentId} {
+      allow read: if isAdmin() || isTeacher();
+      
+      allow create, update: if isAdmin() || 
+                    (isTeacher() && 
+                     get(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)).data.adviserId == request.auth.uid);
+      
+      allow delete: if isAdmin();
+    }
+    
+    // Sections collection
     match /sections/{sectionId} {
-      allow read: if request.auth != null;
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    // Settings collection
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    match /students/{studentId} {
-      // Allow admins full read/write
-      // Allow teachers to read/write if the student's section is in their assignedSections
-      allow read: if isAdmin() || (isTeacher() && resource.data.sectionId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedSections);
-      allow create, update: if isAdmin() || (isTeacher() && request.resource.data.sectionId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedSections);
+    // Submission tasks created by admin
+    match /submissions/{submissionId} {
+      allow read: if isAdmin() || isTeacher();
+      allow create: if isAdmin()
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.title is string
+                    && request.resource.data.description is string
+                    && request.resource.data.deadline is string
+                    && request.resource.data.recipients is string;
+      allow update, delete: if isAdmin();
+    }
+
+    // Teaching load assignments per academic year
+    match /teaching_loads/{loadId} {
+      allow read: if isAdmin() || isTeacher();
+      allow create: if isAdmin()
+                    || (isTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow update: if isAdmin()
+                    || (isTeacher()
+                        && resource.data.teacherId == request.auth.uid
+                        && request.resource.data.teacherId == resource.data.teacherId);
+      allow delete: if isAdmin()
+                    || (isTeacher() && resource.data.teacherId == request.auth.uid);
+    }
+
+    // Teaching breaks per academic year
+    match /teaching_breaks/{breakId} {
+      allow read: if isAdmin() || isTeacher();
+      allow write: if isAdmin();
+    }
+
+    // Daily Student Attendance
+    match /attendance/{attendanceId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher() || isAdmin();
+    }
+
+    // Teacher responses for submission tasks
+    match /submission_responses/{responseId} {
+      allow read: if isAdmin() || (isTeacher() && resource.data.userId == request.auth.uid);
+      allow create: if isTeacher()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.submissionId is string
+                    && request.resource.data.status == 'Submitted';
+      allow update: if isTeacher()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.submissionId == resource.data.submissionId
+                    && request.resource.data.status == 'Submitted';
       allow delete: if isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isSignedIn() && (resource.data.recipientId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn();
+    }
+
+    // Calendar Events
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
   }
 }

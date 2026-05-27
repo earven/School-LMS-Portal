@@ -1,0 +1,162 @@
+.ack-stats-btn {
+  background: rgba(78, 115, 223, 0.1);
+  color: var(--primary-blue);
+  border: 1px solid rgba(78, 115, 223, 0.2);
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ack-stats-btn:hover {
+  background: rgba(78, 115, 223, 0.2);
+}
+
+.ack-status.loading {
+  color: var(--gray-500);
+  font-style: italic;
+}
+
+/* Modal Styles */
+.ack-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.ack-modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.ack-modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--gray-200);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ack-modal-header h3 {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 1.1rem;
+}
+
+.ack-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--gray-500);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.ack-close-btn:hover {
+  color: var(--danger-red);
+}
+
+.ack-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.ack-summary {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ack-stat-box {
+  flex: 1;
+  background: var(--gray-100);
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+
+.ack-stat-num {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-blue);
+}
+
+.ack-stat-label {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  margin-top: 0.25rem;
+}
+
+.ack-modal-body h4 {
+  margin: 0 0 1rem 0;
+  color: var(--gray-800);
+  font-size: 0.9rem;
+}
+
+.ack-users-list {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ack-users-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ack-users-list li {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--gray-100);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--gray-800);
+}
+
+.ack-users-list li:last-child {
+  border-bottom: none;
+}
+
+.no-acks {
+  padding: 1rem;
+  text-align: center;
+  color: var(--gray-500);
+  font-style: italic;
+  margin: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -1,115 +1,312 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import ReactMarkdown from 'react-markdown';
 import { useSettings } from '../context/SettingsContext';
 import { useStudents } from '../context/StudentContext';
 import { usePersonnel } from '../context/PersonnelContext';
+import { useAuth } from '../context/AuthContext';
+import { useSections } from '../context/SectionContext';
+import { useNotifications } from '../context/NotificationContext';
+import { useCalendar } from '../context/CalendarContext';
+import AnnouncementStats from '../components/AnnouncementStats';
+import { db } from '../firebase';
+import { collection, getDocs, deleteDoc } from 'firebase/firestore';
 import './DashboardPage.css';
 
-// Modern SVG Icons
-const Icons = {
-  Admin: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-  ),
-  Teacher: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-  ),
-  Automation: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-  ),
-  Paper: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-  ),
-  Secure: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-  ),
-  Fast: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-  ),
-  Accuracy: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-  ),
-  Anywhere: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-  )
-};
-
 const DashboardPage = () => {
+  const { user } = useAuth();
+  const isAdmin = ['admin', 'system_admin'].includes(user?.role);
   const { settings } = useSettings();
   const { students } = useStudents();
+  const { sections } = useSections();
   const { personnel } = usePersonnel();
   const [activeTab, setActiveTab] = useState('about');
+  const navigate = useNavigate();
+  const { notifications, sendNotification, acknowledgeNotification, markAsRead, setSelectedNotification, deleteAnnouncementGroup, deleteNotification } = useNotifications();
+  const { addEvent } = useCalendar();
+
+  const displayNotifications = useMemo(() => {
+    return notifications.filter(notif => 
+      !notif.acknowledged || (isAdmin && notif.senderId === user?.uid)
+    );
+  }, [notifications, isAdmin, user]);
+
+  const [messageForm, setMessageForm] = useState({
+    recipientId: isAdmin ? 'all_teachers' : 'all_admins',
+    title: '',
+    message: '',
+    type: 'info',
+    link: '',
+    createEvent: false,
+    eventDate: '',
+    eventType: 'activity'
+  });
+  const [isSending, setIsSending] = useState(false);
+  const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
+
+  // ONE-TIME CLEANUP SCRIPT: Delete old test announcements that lack a groupId
+  useEffect(() => {
+    if (isAdmin) {
+      const cleanOrphans = async () => {
+        try {
+          const snap = await getDocs(collection(db, 'notifications'));
+          let deleted = 0;
+          const deletePromises = [];
+          snap.docs.forEach(d => {
+            if (!d.data().groupId) {
+              deletePromises.push(deleteDoc(d.ref));
+              deleted++;
+            }
+          });
+          await Promise.all(deletePromises);
+          if (deleted > 0) {
+            console.log(`Cleaned up ${deleted} orphaned test announcements.`);
+          }
+        } catch (e) {
+          console.error("Cleanup error:", e);
+        }
+      };
+      cleanOrphans();
+    }
+  }, [isAdmin]);
+
+  const displayedStudentCount = useMemo(() => {
+    if (isAdmin) return students.length;
+    const assignedSectionIds = sections
+      .filter(s => s.adviserId === user?.uid)
+      .map(s => s.id);
+    return students.filter(s => assignedSectionIds.includes(s.sectionId)).length;
+  }, [students, sections, user, isAdmin]);
+
+  const displayedSectionCount = useMemo(() => {
+    if (isAdmin) return sections.length;
+    return sections.filter(s => s.adviserId === user?.uid).length;
+  }, [sections, user, isAdmin]);
 
   const stats = [
-    { label: 'Enrolled Students', value: students.length, color: '#4e73df', icon: '👨‍🎓' },
-    { label: 'Active Personnel', value: personnel.length, color: '#1cc88a', icon: '👩‍🏫' },
-    { label: 'Modules Active', value: Object.values(settings.enabledModules).filter(v => v).length, color: '#f6c23e', icon: '⚙️' },
-    { label: 'System Status', value: 'Live', color: '#e74a3b', icon: '✅' }
-  ];
-
-  const workflowSteps = [
-    {
-      icon: <Icons.Admin />,
-      title: 'Admin Management',
-      description: 'Centralized control for student lists, personnel records, and school-wide configurations.'
+    { 
+      label: isAdmin ? 'Total Enrolled Students' : 'My Enrolled Students', 
+      value: displayedStudentCount, 
+      color: '#4e73df', 
+      icon: '👨‍🎓',
+      link: '/students'
     },
-    {
-      icon: <Icons.Teacher />,
-      title: 'Teacher Empowerment',
-      description: 'Specialized tools for attendance, academic tracking, and digital submission management.'
+    { 
+      label: isAdmin ? 'Active Personnel' : 'Active Teachers', 
+      value: personnel.length, 
+      color: '#1cc88a', 
+      icon: '👩‍🏫',
+      link: '/personnel'
     },
-    {
-      icon: <Icons.Automation />,
-      title: 'Smart Automation',
-      description: 'Automatically organizes data for instant retrieval and error-free institutional reporting.'
+    { 
+      label: 'Modules Active', 
+      value: Object.values(settings.enabledModules || {}).filter(v => v).length, 
+      color: '#f6c23e', 
+      icon: '⚙️',
+      link: isAdmin ? '/settings' : '/teacher-tools'
+    },
+    { 
+      label: isAdmin ? 'Total Sections' : 'My Sections', 
+      value: displayedSectionCount, 
+      color: '#e74a3b', 
+      icon: '🏫',
+      link: '/sections'
     }
   ];
 
-  const benefits = [
-    { icon: <Icons.Paper />, title: 'Paperless Workflow', text: 'Eliminate physical filing and reduce environmental impact.' },
-    { icon: <Icons.Secure />, title: 'Unified Security', text: 'All institutional data stored in one highly secure location.' },
-    { icon: <Icons.Fast />, title: 'Instant Reporting', text: 'Generate complex reports and summaries with just a single click.' },
-    { icon: <Icons.Accuracy />, title: 'High Precision', text: 'Advanced validation to minimize human error in data management.' },
-    { icon: <Icons.Anywhere />, title: 'Universal Access', text: 'Securely access your records from any authorized device, anywhere.' }
-  ];
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!messageForm.title || !messageForm.message) {
+      alert('Please provide a title and a message.');
+      return;
+    }
+    setIsSending(true);
+    try {
+      await sendNotification({
+        title: messageForm.title,
+        message: messageForm.message,
+        recipientId: messageForm.recipientId,
+        type: messageForm.type,
+        link: messageForm.link
+      });
+      if (messageForm.createEvent && messageForm.eventDate) {
+        await addEvent({
+          title: messageForm.title,
+          date: messageForm.eventDate,
+          type: messageForm.eventType,
+          description: messageForm.message.substring(0, 500),
+          createdBy: user.uid
+        });
+      }
+
+      alert('Message sent successfully!');
+      setMessageForm({
+        ...messageForm,
+        title: '',
+        message: '',
+        type: 'info',
+        link: '',
+        createEvent: false,
+        eventDate: '',
+        eventType: 'activity'
+      });
+      setIsComposeModalOpen(false);
+    } catch (err) {
+      alert('Failed to send message.');
+    }
+    setIsSending(false);
+  };
+
+  const formatNotifTime = (timestamp) => {
+    if (!timestamp) return '';
+    let date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
     <div className="dashboard-wrapper">
-      <section className="hero-section">
-        <div className="hero-content">
-          <h1 className="hero-title">Welcome to {settings.schoolName}</h1>
-          <p className="hero-motto">{settings.motto}</p>
-          <div className="hero-badge">Productivity Portal</div>
-        </div>
-      </section>
+      <div className="dashboard-top-row">
+        <section className="hero-section">
+          {settings.heroBackground && (
+            <img src={settings.heroBackground} alt="Dashboard Background" className="hero-background-img" />
+          )}
+          <div className="hero-content">
+            <h1 className="hero-title">Welcome to {settings.schoolName}</h1>
+            <p className="hero-motto">{settings.motto}</p>
+            <div className="hero-badge">Productivity Portal</div>
+          </div>
+        </section>
 
-      <div className="dashboard-nav">
-        <div className="tab-buttons">
-          <button 
-            className={`tab-btn ${activeTab === 'about' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('about')}
-          >
-            Overview
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'how-it-works' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('how-it-works')}
-          >
-            System Workflow
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'benefits' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('benefits')}
-          >
-            Key Benefits
-          </button>
-        </div>
-      </div>
+        <div className="dashboard-right-col" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', minWidth: 0 }}>
+          <div className="dashboard-announcements-section" style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
+            <div className="announcements-container" style={{ height: '100%' }}>
+              <div className="feed-section card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div className="feed-header-row">
+                  <h2>Recent Announcements</h2>
+                {isAdmin && (
+                  <button className="post-announcement-btn" onClick={() => setIsComposeModalOpen(true)}>
+                    + Post Announcement
+                  </button>
+                )}
+              </div>
+              <div className="feed-list-full scrollable-feed">
+                {displayNotifications.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-icon">📫</div>
+                    <p>No announcements or messages at this time.</p>
+                  </div>
+                ) : (
+                  displayNotifications.slice(0, 1).map(notif => (
+                    <div 
+                      key={notif.id} 
+                      className={`feed-item-full ${!notif.read ? 'unread' : ''} type-${notif.type || 'info'}`}
+                      onClick={() => {
+                        if (!notif.read) markAsRead(notif.id);
+                        setSelectedNotification(notif);
+                      }}
+                    >
+                      <div className="feed-item-header">
+                        <div className="feed-sender">
+                          <div className="sender-avatar">
+                            {(notif.senderName || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="sender-info">
+                            <span className="sender-name">{notif.senderName}</span>
+                            <span className="feed-time">{formatNotifTime(notif.createdAt)}</span>
+                          </div>
+                        </div>
+                        {notif.type && notif.type !== 'info' && (
+                          <div className={`feed-badge badge-${notif.type}`}>
+                            {notif.type.toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <h3 className="feed-title">{notif.title}</h3>
+                      <div className="feed-body markdown-content">
+                        <ReactMarkdown>{notif.message}</ReactMarkdown>
+                      </div>
+                      
+                      {notif.link && (
+                        <div className="feed-link-container">
+                          <a href={notif.link} target="_blank" rel="noopener noreferrer" className="feed-external-link" onClick={e => e.stopPropagation()}>
+                            🔗 View Attached Link
+                          </a>
+                        </div>
+                      )}
 
-      <main className="tab-container">
-        {activeTab === 'about' && (
-          <div className="fade-in">
-            <div className="stats-grid">
+                      <div className="feed-actions">
+                        {!notif.acknowledged && notif.senderId !== user?.uid && (
+                          <button 
+                            className="ack-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              acknowledgeNotification(notif.id);
+                            }}
+                          >
+                            👍 Acknowledge
+                          </button>
+                        )}
+                        {notif.senderId === user?.uid && notif.groupId ? (
+                          <AnnouncementStats groupId={notif.groupId} senderId={user?.uid} />
+                        ) : null}
+                        {isAdmin && (
+                          <button 
+                            className="del-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if(window.confirm('Delete this announcement?')) {
+                                if (notif.groupId) {
+                                  deleteAnnouncementGroup(notif.groupId);
+                                } else {
+                                  deleteNotification(notif.id);
+                                }
+                              }
+                            }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+                <div className="feed-footer-actions" style={{ textAlign: 'center', marginTop: '1rem' }}>
+                  {displayNotifications.length > 1 && (
+                    <div className="more-announcements-hint" style={{ color: 'var(--gray-500)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                      +{displayNotifications.length - 1} more unseen announcement(s). Acknowledge this one to see the next.
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => navigate('/announcements')}
+                    className="view-all-btn"
+                    style={{ background: 'none', border: 'none', color: 'var(--primary-blue)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    View All Announcements History
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+          <div className="dashboard-overview-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0, minWidth: 0 }}>
+            <div className="stats-grid" style={{ marginBottom: 0 }}>
               {stats.map((stat, idx) => (
-                <div key={idx} className="stat-card-mini" style={{ '--accent': stat.color }}>
+                <div 
+                  key={idx} 
+                  className="stat-card-mini" 
+                  style={{ '--accent': stat.color }}
+                  onClick={() => {
+                    if (stat.link) {
+                      navigate(stat.link);
+                    } else if (stat.action) {
+                      stat.action();
+                    }
+                  }}
+                  title={stat.link ? `Click to view ${stat.label}` : undefined}
+                >
                   <div className="stat-icon">{stat.icon}</div>
                   <div className="stat-info">
                     <span className="stat-value">{stat.value}</span>
@@ -118,55 +315,131 @@ const DashboardPage = () => {
                 </div>
               ))}
             </div>
-            
-            <div className="dashboard-main-grid">
-              <div className="info-card primary">
-                <h2>About Our Mission</h2>
-                <p>{settings.description}</p>
-              </div>
-              <div className="info-card secondary">
-                <h3>The Portal Initiative</h3>
-                <p>
-                  The <strong>Vinapor NHS Productivity Portal</strong> is a strategic digital transformation project designed to elevate educational operations. 
-                  By centralizing administrative tasks and academic records, we empower educators to focus more on teaching and less on paperwork.
-                </p>
-              </div>
-            </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {activeTab === 'how-it-works' && (
-          <div className="fade-in">
-            <h2 className="section-label">Operational Framework</h2>
-            <div className="workflow-container">
-              {workflowSteps.map((step, index) => (
-                <div key={index} className="modern-card workflow-card">
-                  <div className="icon-wrapper">{step.icon}</div>
-                  <h3>{step.title}</h3>
-                  <p>{step.description}</p>
+      {/* Compose Announcement Modal */}
+      {isComposeModalOpen && isAdmin && createPortal(
+        <div className="dashboard-modal-overlay">
+          <div className="dashboard-modal-content">
+            <div className="dashboard-modal-header">
+              <h2>Post an Announcement</h2>
+              <button className="dashboard-close-btn" onClick={() => setIsComposeModalOpen(false)}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <form className="message-form" onSubmit={handleSendMessage}>
+              <div className="form-group">
+                <label>To:</label>
+                <select 
+                  value={messageForm.recipientId}
+                  onChange={(e) => setMessageForm({...messageForm, recipientId: e.target.value})}
+                >
+                  <option value="all_teachers">All Teachers</option>
+                  <option value="all_admins">All Admins</option>
+                  <option value="all">Everyone</option>
+                  <optgroup label="Specific Teacher">
+                    {personnel.filter(p => p.role === 'teacher').map(p => (
+                      <option key={p.uid} value={p.uid}>{p.fullName || p.username}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+              <div className="form-group-row" style={{ display: 'flex', gap: '1rem' }}>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label>Subject / Title:</label>
+                  <input 
+                    type="text" 
+                    placeholder="Enter the announcement title" 
+                    value={messageForm.title}
+                    onChange={(e) => setMessageForm({...messageForm, title: e.target.value})}
+                    maxLength={100}
+                  />
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label>Type:</label>
+                  <select 
+                    value={messageForm.type}
+                    onChange={(e) => setMessageForm({...messageForm, type: e.target.value})}
+                  >
+                    <option value="info">Information</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="event">Event</option>
+                    <option value="success">Success / Shoutout</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Message (Markdown Supported):</label>
+                <textarea 
+                  placeholder="Write your announcement details here... You can use **bold**, *italic*, etc."
+                  value={messageForm.message}
+                  onChange={(e) => setMessageForm({...messageForm, message: e.target.value})}
+                  maxLength={2000}
+                  rows="3"
+                />
+              </div>
+              <div className="form-group">
+                <label>External Link (Optional):</label>
+                <input 
+                  type="url" 
+                  placeholder="https://example.com" 
+                  value={messageForm.link}
+                  onChange={(e) => setMessageForm({...messageForm, link: e.target.value})}
+                />
+              </div>
 
-        {activeTab === 'benefits' && (
-          <div className="fade-in">
-            <h2 className="section-label">Why Choose Digital?</h2>
-            <div className="benefits-container">
-              {benefits.map((benefit, index) => (
-                <div key={index} className="modern-card benefit-card">
-                  <div className="icon-wrapper small">{benefit.icon}</div>
-                  <div className="card-info">
-                    <h3>{benefit.title}</h3>
-                    <p>{benefit.text}</p>
+              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+                <input 
+                  type="checkbox" 
+                  id="createEventCheck" 
+                  checked={messageForm.createEvent} 
+                  onChange={e => setMessageForm({...messageForm, createEvent: e.target.checked})} 
+                  style={{ width: '14px', height: '14px', margin: 0, cursor: 'pointer' }}
+                />
+                <label htmlFor="createEventCheck" style={{ margin: 0, fontWeight: 'bold', cursor: 'pointer', color: '#1f2937', flex: 1, fontSize: '0.85rem' }}>
+                  Also add this to the School Calendar
+                </label>
+              </div>
+
+              {messageForm.createEvent && (
+                <div className="form-group-row" style={{ display: 'flex', gap: '0.75rem', padding: '0.5rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px' }}>
+                  <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                    <label>Calendar Event Date:</label>
+                    <input 
+                      type="date" 
+                      required={messageForm.createEvent}
+                      value={messageForm.eventDate}
+                      onChange={(e) => setMessageForm({...messageForm, eventDate: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                    <label>Calendar Event Type:</label>
+                    <select 
+                      value={messageForm.eventType}
+                      onChange={(e) => setMessageForm({...messageForm, eventType: e.target.value})}
+                    >
+                      <option value="activity">Activity / Event</option>
+                      <option value="holiday">Holiday / Classes Suspended</option>
+                      <option value="exam">Exam Week</option>
+                    </select>
                   </div>
                 </div>
-              ))}
-            </div>
+              )}
+
+              <div className="dashboard-modal-actions">
+                <button type="button" className="cancel-btn" onClick={() => setIsComposeModalOpen(false)}>Cancel</button>
+                <button type="submit" className="send-btn" disabled={isSending}>
+                  {isSending ? 'Sending...' : 'Post Announcement'}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-      </main>
+        </div>,
+        document.body
+      )}
+
     </div>
   );
 };

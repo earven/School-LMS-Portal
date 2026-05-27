@@ -1,7 +1,7 @@
 // src/firebase.js
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -18,4 +18,17 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-export { app, auth, db };
+// Enable offline persistence
+enableMultiTabIndexedDbPersistence(db).catch((err) => {
+  if (err.code === 'failed-precondition') {
+    console.warn("Multiple tabs open, offline mode enabled in first tab only.");
+  } else if (err.code === 'unimplemented') {
+    console.warn("Browser doesn't support offline persistence.");
+  }
+});
+
+// Secondary app instance for admin user management (avoids logging out the admin)
+const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+const adminAuth = getAuth(secondaryApp);
+
+export { app, auth, db, adminAuth, firebaseConfig };

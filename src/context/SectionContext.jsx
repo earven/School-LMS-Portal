@@ -1,16 +1,26 @@
 // src/context/SectionContext.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext.jsx';
 import { db } from '../firebase';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 const SectionContext = createContext(null);
 
 export const SectionProvider = ({ children }) => {
+  const { user, loading: authLoading } = useAuth();
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setSections([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     const q = query(collection(db, 'sections'));
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
@@ -26,7 +36,7 @@ export const SectionProvider = ({ children }) => {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [user, authLoading]);
 
   const addSection = async (newSection) => {
     try {
@@ -62,13 +72,6 @@ export const SectionProvider = ({ children }) => {
       setError('Failed to delete section.');
     }
   };
-
-  if (loading) {
-    return <div>Loading sections...</div>;
-  }
-  if (error) {
-    return <div>Error: {error}</div>;
-  }
 
   return (
     <SectionContext.Provider value={{ sections, loading, error, addSection, updateSection, deleteSection }}>

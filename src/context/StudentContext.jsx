@@ -1,15 +1,25 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext.jsx';
 import { db } from '../firebase';
 import { collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 const StudentContext = createContext(null);
 
 export const StudentProvider = ({ children }) => {
+  const { user, loading: authLoading } = useAuth();
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setStudents([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     const q = query(collection(db, 'students'));
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
@@ -25,7 +35,7 @@ export const StudentProvider = ({ children }) => {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [user, authLoading]);
 
   const updateStudent = async (updatedStudent) => {
     try {
@@ -52,14 +62,24 @@ export const StudentProvider = ({ children }) => {
 
   const addBulkStudents = async (newStudents) => {
     try {
-      for (const student of newStudents) {
-        const studentRef = doc(db, 'students', student.id);
-        await setDoc(studentRef, student);
+      // Use a batch for better performance and atomicity
+      // Firestore batch limit is 500 operations
+      const batches = [];
+      for (let i = 0; i < newStudents.length; i += 500) {
+        batches.push(newStudents.slice(i, i + 500));
+      }
+
+      for (const batchData of batches) {
+        for (const student of batchData) {
+          const studentRef = doc(db, 'students', student.id);
+          await setDoc(studentRef, student);
+        }
       }
       console.log('Bulk students added to Firestore.');
     } catch (e) {
       console.error('Error adding bulk students:', e);
       setError('Failed to add bulk students.');
+      throw e; // Rethrow to let the UI handle it
     }
   };
 

@@ -1,106 +1,137 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePersonnel } from '../context/PersonnelContext';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useSections } from '../context/SectionContext';
+import {
+  normalizePersonnelRecord,
+  preparePersonnelForSave,
+  personMatchesSearch,
+  comparePersonnel,
+  buildFullName,
+  hasRequiredNameFields,
+} from '../utils/personnelName';
 import './PersonnelPage.css';
 
 const PersonnelPage = () => {
-  const { personnel, loading, error, updatePersonnel, addPersonnel, deletePersonnel } = usePersonnel();
+  const navigate = useNavigate();
+  const { 
+    personnel, 
+    loading, 
+    error, 
+    customFieldsConfig, 
+    addPersonnel, 
+  } = usePersonnel();
   const { user } = useAuth();
+  const { sections } = useSections(); // Fetch sections
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedPerson, setSelectedPerson] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [editForm, setEditForm] = useState(null);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [sortField, setSortField] = useState('lastName');
+  const [sortDirection, setSortDirection] = useState('asc');
 
-  const [newPersonForm, setNewPersonForm] = useState({
-    id: '', // This will be the UID from Firebase Auth if creating a new user
-    email: '', // Required for Firebase Auth
-    password: '', // Required for Firebase Auth
-    fullName: '',
-    position: 'Teacher I',
-    role: 'teacher',
-    teachingLoad: '',
-    assignedReports: '',
-    assignedSections: [], // New field for sections
-  });
+  const SUBJECT_SPECIALIZATIONS = ['AP', 'English', 'Mathematics', 'Science', 'Filipino', 'MAPEH', 'TLE', 'ESP'];
 
-  const isAdmin = user?.role === 'admin';
+  const SORTABLE_COLUMNS = [
+    { key: 'lastName', label: 'Last Name' },
+    { key: 'firstName', label: 'First Name' },
+    { key: 'middleName', label: 'Middle Name' },
+    { key: 'nameExtension', label: 'Ext.' },
+    { key: 'email', label: 'Email' },
+    { key: 'position', label: 'Position' },
+    { key: 'role', label: 'Role' },
+  ];
+
+  const isAdmin = ['admin', 'system_admin'].includes(user?.role);
   // Find current authenticated user's personnel record from the fetched personnel list
   const currentUserPersonnel = personnel.find(p => p.id === user?.uid);
 
   // If not admin, restrict view to own profile or assigned sections
-  const displayedPersonnel = isAdmin 
-    ? personnel.filter(p => 
-        p.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (p.email && p.email.toLowerCase().includes(searchTerm.toLowerCase()))
-      )
-    : (currentUserPersonnel ? [currentUserPersonnel] : []);
+  const [filterAdviser, setFilterAdviser] = useState('all'); // 'all', 'advisers', 'non-advisers'
+  const [filterSubject, setFilterSubject] = useState('all'); // 'all' or specific subject
+
+  const adviserIds = useMemo(
+    () => new Set(sections.map((s) => s.adviserId).filter(Boolean)),
+    [sections]
+  );
+
+  const normalizedPersonnel = useMemo(
+    () => personnel.map((p) => normalizePersonnelRecord(p)),
+    [personnel]
+  );
+
+  const filteredList = useMemo(() => {
+    return normalizedPersonnel.filter((p) => {
+      if (!personMatchesSearch(p, searchTerm)) return false;
+
+      const isAdviser = adviserIds.has(p.id);
+      if (filterAdviser === 'advisers' && !isAdviser) return false;
+      if (filterAdviser === 'non-advisers' && isAdviser) return false;
+
+      if (filterSubject !== 'all' && !(p.subjects || []).includes(filterSubject)) return false;
+
+      return true;
+    });
+  }, [normalizedPersonnel, searchTerm, filterAdviser, filterSubject, adviserIds]);
+
+  const displayedPersonnel = useMemo(() => {
+    const list = isAdmin
+      ? [...filteredList]
+      : currentUserPersonnel
+        ? [normalizePersonnelRecord(currentUserPersonnel)]
+        : [];
+
+    return list.sort((a, b) => comparePersonnel(a, b, sortField, sortDirection));
+  }, [isAdmin, filteredList, currentUserPersonnel, sortField, sortDirection]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIndicator = (field) => {
+    if (sortField !== field) return '↕';
+    return sortDirection === 'asc' ? '↑' : '↓';
+  };
 
   const handleRowClick = (person) => {
-    if (isAdmin || person.id === user?.uid) { // Allow teachers to view their own profile
-      setSelectedPerson(person);
-      setEditForm(person);
-      setIsEditing(false);
-      setIsAdding(false);
+    if (isAdmin || person.id === user?.uid) {
+      navigate(`/personnel/${person.id}`);
     }
-  };
-
-  const handleEditChange = (e) => {
-    const { name, value } = e.target;
-    setEditForm(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleNewPersonChange = (e) => {
-    const { name, value } = e.target;
-    setNewPersonForm(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSave = async () => {
-    await updatePersonnel(editForm);
-    setSelectedPerson(editForm);
-    setIsEditing(false);
-    alert('Personnel record updated successfully!');
-  };
-
-  const handleAddNew = async () => {
-    if (!newPersonForm.email || !newPersonForm.password || !newPersonForm.fullName) {
-      alert('Please fill in the Email, Password, and Full Name.');
-      return;
-    }
-    // The actual Firebase Auth user creation will happen elsewhere (e.g. via Cloud Function)
-    // For now, we'll just add the personnel data to Firestore. The ID should come from Auth.
-    // For this example, we'll create a dummy ID. In a real app, you'd link this to Auth user creation.
-    const newPersonWithId = { ...newPersonForm, id: newPersonForm.id || `temp_${Date.now()}` };
-    await addPersonnel(newPersonWithId);
-    setIsAdding(false);
-    setNewPersonForm({
-      id: '',
-      email: '',
-      password: '',
-      fullName: '',
-      position: 'Teacher I',
-      role: 'teacher',
-      teachingLoad: '',
-      assignedReports: '',
-      assignedSections: [],
-    });
-    alert('New personnel record added successfully!');
   };
 
   const handleExportCSV = () => {
-    const headers = ['ID', 'Email', 'Full Name', 'Position', 'Role', 'Teaching Load', 'Assigned Reports', 'Assigned Sections'];
+    const baseHeaders = ['ID', 'Email', 'Last Name', 'First Name', 'Middle Initial', 'Extension', 'Position', 'Role', 'Assigned Ancillary', 'Assigned Sections', 'Specializations'];
+    const customHeaders = customFieldsConfig.map(f => f.label);
+    const headers = [...baseHeaders, ...customHeaders];
+
     const csvContent = [
       headers.join(','),
-      ...displayedPersonnel.map(p => [
-        p.id,
-        p.email || '',
-        `"${p.fullName}"`,
-        `"${p.position}"`,
-        p.role,
-        `"${p.teachingLoad || ''}"`,
-        `"${p.assignedReports || ''}"`,
-        `"${(p.assignedSections || []).join(';')}"`
-      ].join(','))
+      ...displayedPersonnel.map(p => {
+        const row = [
+          p.id,
+          p.email || '',
+          `"${p.lastName || ''}"`,
+          `"${p.firstName || ''}"`,
+          `"${p.middleName || ''}"`,
+          `"${p.nameExtension || ''}"`,
+          `"${p.position}"`,
+          p.role,
+          `"${p.assignedReports || ''}"`,
+          `"${(p.assignedSections || []).join(';')}"`,
+          `"${(p.subjects || []).join(';')}"`
+        ];
+        
+        customFieldsConfig.forEach(field => {
+          const val = p.customFields?.[field.id] ?? '';
+          row.push(`"${val}"`);
+        });
+        
+        return row.join(',');
+      })
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -114,12 +145,130 @@ const PersonnelPage = () => {
     document.body.removeChild(link);
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this personnel record? This action cannot be undone.')) {
-      await deletePersonnel(id);
-      setSelectedPerson(null);
-      alert('Personnel record deleted.');
-    }
+  const generatePersonnelCSVTemplate = () => {
+    const baseHeaders = ['Email', 'Password', 'LastName', 'FirstName', 'MiddleName', 'Extension', 'Position', 'Role', 'AssignedAncillary', 'Specializations'];
+    const customHeaders = customFieldsConfig.map(f => f.label);
+    const headers = [...baseHeaders, ...customHeaders];
+    
+    const dummyVals = customFieldsConfig.map(f => {
+      if (f.type === 'date') return '1990-01-01';
+      if (f.type === 'number') return '123';
+      if (f.type === 'checkbox') return 'false';
+      if (f.type === 'select') return f.options?.[0] || '';
+      return 'Sample';
+    });
+
+    const csvContent = headers.join(',') + '\n' + 
+      'teacher@example.com,password123,"Dela Cruz","Juan","M","Jr.","Teacher I",teacher,"Math Coordinator, BSP Adviser","AP;English"' +
+      (dummyVals.length > 0 ? ',' + dummyVals.map(v => `"${v}"`).join(',') : '');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'personnel_template.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleBulkUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = e.target.result;
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/ /g, ''));
+
+      let successCount = 0;
+      let failCount = 0;
+      let errors = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        // Simple CSV parser that handles quotes and empty fields
+        const values = [];
+        let current = "";
+        let inQuotes = false;
+        
+        for (let char of lines[i]) {
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim());
+            current = "";
+          } else {
+            current += char;
+          }
+        }
+        values.push(current.trim()); // Push last field
+
+        const cleanedValues = values.map(v => v.replace(/^"|"$/g, '').trim());
+
+        if (cleanedValues.length < 3 || !cleanedValues[0]) {
+          continue;
+        }
+
+        const personData = {};
+        const customFieldsData = {};
+        
+        headers.forEach((header, index) => {
+          const cleanVal = cleanedValues[index];
+          if (cleanVal !== undefined) {
+            personData[header] = cleanVal;
+            
+            // Check if this matches a custom field label
+            const matchedField = customFieldsConfig.find(f => 
+              f.label.trim().toLowerCase().replace(/ /g, '') === header
+            );
+            if (matchedField) {
+              if (matchedField.type === 'checkbox') {
+                customFieldsData[matchedField.id] = cleanVal.toLowerCase() === 'true' || cleanVal.toLowerCase() === 'yes';
+              } else {
+                customFieldsData[matchedField.id] = cleanVal;
+              }
+            }
+          }
+        });
+
+        const legacyFullName = personData.fullname || personData.name || personData['fullname'] || '';
+        const formattedData = preparePersonnelForSave({
+          email: personData.email,
+          lastName: personData.lastname || personData['lastname'] || '',
+          firstName: personData.firstname || personData['firstname'] || '',
+          middleName: personData.middlename || personData['middlename'] || '',
+          nameExtension: personData.extension || personData.nameextension || personData['nameextension'] || '',
+          position: personData.position || 'Teacher I',
+          role: (personData.role || 'teacher').toLowerCase(),
+          assignedReports:
+            personData.assignedancillary ||
+            personData.assignedcoordinatorship ||
+            personData.assignedreports ||
+            '',
+          assignedSections: [],
+          subjects: (personData.specializations || personData.subjects || '').split(';').map(s => s.trim()).filter(Boolean),
+          customFields: customFieldsData,
+          fullName: legacyFullName,
+        });
+
+        if (!formattedData.email || !hasRequiredNameFields(formattedData)) continue;
+
+        const result = await addPersonnel(formattedData, personData.password || 'password123');
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+          errors.push(`${formattedData.email}: ${result.error}`);
+        }
+      }
+
+      alert(`Bulk upload complete!\n\n✅ Success: ${successCount}\n❌ Failed: ${failCount}${errors.length > 0 ? '\n\nErrors:\n' + errors.join('\n') : ''}`);
+      setShowBulkUpload(false);
+      event.target.value = null;
+    };
+    reader.readAsText(file);
   };
 
   if (loading) {
@@ -139,24 +288,50 @@ const PersonnelPage = () => {
               <button className="export-btn-outline" onClick={handleExportCSV}>
                 📥 Export CSV
               </button>
+              <button className="export-btn-outline" onClick={() => navigate('/personnel/configure-fields')}>
+                ⚙️ Configure Fields
+              </button>
               <button className="add-btn-primary" onClick={() => {
-                setIsAdding(true);
-                setSelectedPerson(null);
+                setShowBulkUpload(true);
               }}>
+                ⬆️ Bulk Upload
+              </button>
+              <button className="add-btn-primary" onClick={() => navigate('/personnel/new')}>
                 + Add New Personnel
               </button>
             </div>
           )}
         </div>
         {isAdmin && (
-          <div className="search-bar">
-            <input 
-              type="text" 
-              placeholder="Search by name or email..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="search-input"
-            />
+          <div className="personnel-filters-bar">
+            <div className="search-box">
+              <input 
+                type="text" 
+                placeholder="Search by name or email..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="search-input"
+              />
+            </div>
+            <div className="filter-dropdowns">
+              <div className="filter-group">
+                <label>Nature of Task:</label>
+                <select value={filterAdviser} onChange={(e) => setFilterAdviser(e.target.value)}>
+                  <option value="all">All Nature</option>
+                  <option value="advisers">Advisers Only</option>
+                  <option value="non-advisers">Non-Advisers Only</option>
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Specialization:</label>
+                <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}>
+                  <option value="all">All Subjects</option>
+                  {SUBJECT_SPECIALIZATIONS.map(sub => (
+                    <option key={sub} value={sub}>{sub}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -167,207 +342,99 @@ const PersonnelPage = () => {
             <table className="personnel-table">
               <thead>
                 <tr>
-                  <th>Email</th>
-                  <th>Full Name</th>
-                  <th>Position</th>
-                  <th>Role</th>
+                  {SORTABLE_COLUMNS.map((col) => (
+                    <th key={col.key}>
+                      <button
+                        type="button"
+                        className="sortable-header-btn"
+                        onClick={() => handleSort(col.key)}
+                      >
+                        {col.label} <span className="sort-indicator">{getSortIndicator(col.key)}</span>
+                      </button>
+                    </th>
+                  ))}
+                  <th>Nature of Task</th>
+                  <th>Specializations</th>
                   <th>Sections</th>
                 </tr>
               </thead>
               <tbody>
-                {displayedPersonnel.map(p => (
-                  <tr key={p.id} onClick={() => handleRowClick(p)} className={selectedPerson?.id === p.id ? 'selected' : ''}>
-                    <td>{p.email}</td>
-                    <td>{p.fullName}</td>
-                    <td>{p.position}</td>
-                    <td className="capitalize">{p.role}</td>
-                    <td>{(p.assignedSections || []).join(', ')}</td>
-                  </tr>
-                ))}
+                {displayedPersonnel.map(p => {
+                  const isAdviser = adviserIds.has(p.id);
+                  return (
+                    <tr key={p.id} onClick={() => handleRowClick(p)}>
+                      <td>{p.lastName || '—'}</td>
+                      <td>{p.firstName || '—'}</td>
+                      <td>{p.middleName || '—'}</td>
+                      <td>{p.nameExtension || '—'}</td>
+                      <td>{p.email}</td>
+                      <td>{p.position}</td>
+                      <td className="capitalize" style={{ textTransform: 'capitalize' }}>{p.role.replace('_', ' ')}</td>
+                      <td>{isAdviser ? 'Adviser' : 'Non-Adviser'}</td>
+                      <td>{(p.subjects || []).join(', ') || 'None'}</td>
+                      <td>{(p.assignedSections || []).map(id => sections.find(s => s.id === id)?.name || id).join(', ')}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         ) : (
-          showOwnProfileOnly && (
+          currentUserPersonnel && (
             <div className="profile-view-only">
-               <div className="profile-card">
-                  <h2>{currentUserPersonnel.fullName}</h2>
-                  <p className="position-tag">{currentUserPersonnel.position} • {currentUserPersonnel.role.toUpperCase()}</p>
-                  <hr />
-                  <div className="profile-info-grid">
-                    <div className="info-item">
-                      <label>Personnel ID</label>
-                      <span>{currentUserPersonnel.id}</span>
-                    </div>
-                    <div className="info-item">
-                      <label>Email</label>
-                      <span>{currentUserPersonnel.email}</span>
-                    </div>
-                    <div className="info-item">
-                      <label>Teaching Load</label>
-                      <span>{currentUserPersonnel.teachingLoad || 'N/A'}</span>
-                    </div>
-                    <div className="info-item">
-                      <label>Assigned Reports</label>
-                      <span>{currentUserPersonnel.assignedReports || 'N/A'}</span>
-                    </div>
-                    <div className="info-item">
-                      <label>Assigned Sections</label>
-                      <span>{(currentUserPersonnel.assignedSections || []).join(', ') || 'N/A'}</span>
-                    </div>
-                  </div>
-               </div>
+              <div className="profile-card">
+                <h2>{buildFullName(normalizePersonnelRecord(currentUserPersonnel))}</h2>
+                <p className="position-tag">
+                  {currentUserPersonnel.position || 'N/A'} • {(currentUserPersonnel.role || 'N/A').replace('_', ' ').toUpperCase()}
+                </p>
+                <p style={{ color: 'var(--gray-600)', marginBottom: '1.25rem' }}>
+                  View your complete personnel profile on a full page for easier reading.
+                </p>
+                <button
+                  type="button"
+                  className="edit-btn"
+                  onClick={() => navigate(`/personnel/${currentUserPersonnel.id}`)}
+                >
+                  View My Profile
+                </button>
+              </div>
             </div>
           )
         )}
 
-        {isAdmin && selectedPerson && (
+        {isAdmin && showBulkUpload && (
           <div className="personnel-detail-panel">
             <div className="detail-header">
-              <h2>Personnel Profile</h2>
-              <button className="close-btn" onClick={() => setSelectedPerson(null)}>×</button>
+              <h2>Bulk Upload Personnel</h2>
+              <button className="close-btn" onClick={() => setShowBulkUpload(false)}>×</button>
             </div>
-            
             <div className="detail-body">
-              {!isEditing ? (
-                <div className="profile-view">
-                  <div className="profile-group">
-                    <label>ID:</label>
-                    <p>{selectedPerson.id}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Email:</label>
-                    <p>{selectedPerson.email}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Full Name:</label>
-                    <p>{selectedPerson.fullName}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Position:</label>
-                    <p>{selectedPerson.position}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Role:</label>
-                    <p className="capitalize">{selectedPerson.role}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Teaching Load:</label>
-                    <p>{selectedPerson.teachingLoad || 'N/A'}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Assigned Reports:</label>
-                    <p>{selectedPerson.assignedReports || 'N/A'}</p>
-                  </div>
-                  <div className="profile-group">
-                    <label>Assigned Sections:</label>
-                    <p>{(selectedPerson.assignedSections || []).join(', ') || 'N/A'}</p>
-                  </div>
-                  <div className="profile-actions">
-                    <button className="edit-btn" onClick={() => setIsEditing(true)}>Edit Record</button>
-                    <button className="delete-btn-outline" onClick={() => handleDelete(selectedPerson.id)}>Delete Record</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="profile-edit">
-                  <div className="form-group">
-                    <label>Full Name</label>
-                    <input type="text" name="fullName" value={editForm.fullName} onChange={handleEditChange} />
-                  </div>
-                  <div className="form-group">
-                    <label>Position</label>
-                    <input type="text" name="position" value={editForm.position} onChange={handleEditChange} />
-                  </div>
-                  <div className="form-group">
-                    <label>Role</label>
-                    <select name="role" value={editForm.role} onChange={handleEditChange}>
-                      <option value="admin">Admin</option>
-                      <option value="teacher">Teacher</option>
-                      <option value="staff">Staff</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Teaching Load</label>
-                    <input type="text" name="teachingLoad" value={editForm.teachingLoad} onChange={handleEditChange} />
-                  </div>
-                  <div className="form-group">
-                    <label>Assigned Reports</label>
-                    <textarea name="assignedReports" value={editForm.assignedReports} onChange={handleEditChange} />
-                  </div>
-                  <div className="form-group">
-                    <label>Assigned Sections (comma-separated IDs)</label>
-                    <input 
-                      type="text" 
-                      name="assignedSections" 
-                      value={(editForm.assignedSections || []).join(', ')} 
-                      onChange={(e) => setEditForm(prev => ({ ...prev, assignedSections: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
-                    />
-                  </div>
-                  <div className="edit-actions">
-                    <button className="save-btn" onClick={handleSave}>Save Changes</button>
-                    <button className="cancel-btn" onClick={() => setIsEditing(false)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {isAdmin && isAdding && (
-          <div className="personnel-detail-panel">
-            <div className="detail-header">
-              <h2>Add New Personnel</h2>
-              <button className="close-btn" onClick={() => setIsAdding(false)}>×</button>
-            </div>
-            
-            <div className="detail-body">
-              <div className="profile-edit">
-                <div className="form-group">
-                  <label>Email</label>
-                  <input type="email" name="email" value={newPersonForm.email} onChange={handleNewPersonChange} placeholder="personnel@example.com" />
-                </div>
-                <div className="form-group">
-                  <label>Password</label>
-                  <input type="password" name="password" value={newPersonForm.password} onChange={handleNewPersonChange} placeholder="******" />
-                </div>
-                <div className="form-group">
-                  <label>Full Name</label>
-                  <input type="text" name="fullName" value={newPersonForm.fullName} onChange={handleNewPersonChange} placeholder="Enter full name" />
-                </div>
-                <div className="form-group">
-                  <label>Position</label>
-                  <input type="text" name="position" value={newPersonForm.position} onChange={handleNewPersonChange} placeholder="e.g. Teacher II" />
-                </div>
-                <div className="form-group">
-                  <label>Role</label>
-                  <select name="role" value={newPersonForm.role} onChange={handleNewPersonChange}>
-                    <option value="admin">Admin</option>
-                    <option value="teacher">Teacher</option>
-                    <option value="staff">Staff</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Teaching Load</label>
-                  <input type="text" name="teachingLoad" value={newPersonForm.teachingLoad} onChange={handleNewPersonChange} placeholder="e.g. Math 10, Science 9" />
-                </div>
-                <div className="form-group">
-                  <label>Assigned Reports</label>
-                  <textarea name="assignedReports" value={newPersonForm.assignedReports} onChange={handleNewPersonChange} placeholder="Assigned reports and tasks" />
-                </div>
-                <div className="form-group">
-                    <label>Assigned Sections (comma-separated IDs)</label>
-                    <input 
-                      type="text" 
-                      name="assignedSections" 
-                      value={(newPersonForm.assignedSections || []).join(', ')} 
-                      onChange={(e) => setNewPersonForm(prev => ({ ...prev, assignedSections: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
-                      placeholder="e.g., Grade7-A, Grade8-B"
-                    />
-                  </div>
-                <div className="edit-actions">
-                  <button className="save-btn" onClick={handleAddNew}>Add Personnel</button>
-                  <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
-                </div>
+              <p>Upload a CSV file containing personnel data. The CSV should have the following headers (case-insensitive):</p>
+              <ul style={{ fontSize: '0.9rem', marginBottom: '1rem', color: 'var(--gray-600)' }}>
+                <li>`Email` (required)</li>
+                <li>`Password` (required)</li>
+                <li>`LastName` (required)</li>
+                <li>`FirstName` (required)</li>
+                <li>`MiddleInitial` (optional)</li>
+                <li>`Extension` (optional, e.g. Jr., Sr., III)</li>
+                <li>`FullName` (legacy — used only if Last/First are empty)</li>
+                <li>`Position` (e.g. Teacher I)</li>
+                <li>`Role` (admin, teacher, staff)</li>
+                <li>`AssignedAncillary` (coordinator roles, clubs, committees)</li>
+                <li>`Specializations` (semicolon-separated, e.g. AP;English)</li>
+                {customFieldsConfig.map(f => (
+                  <li key={f.id}>`{f.label}` (Custom Field)</li>
+                ))}
+              </ul>
+              <button className="edit-btn" style={{ marginBottom: '1rem' }} onClick={generatePersonnelCSVTemplate}>
+                Download CSV Template
+              </button>
+              <div className="form-group">
+                <label htmlFor="csvUpload">Select CSV File</label>
+                <input type="file" id="csvUpload" accept=".csv" onChange={handleBulkUpload} />
+              </div>
+              <div className="edit-actions">
+                <button className="cancel-btn" onClick={() => setShowBulkUpload(false)}>Cancel</button>
               </div>
             </div>
           </div>

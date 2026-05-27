@@ -32,28 +32,24 @@
 .export-btn-outline {
   background-color: transparent;
   color: var(--primary-blue);
-  border: 1.5px solid var(--primary-blue);
-  padding: 0.75rem 1.5rem;
-  font-weight: 700;
-  border-radius: 8px;
+  border-color: var(--primary-blue);
 }
 
-.export-btn-outline:hover {
+.export-btn-outline:hover:not(:disabled) {
   background-color: var(--light-blue);
 }
 
 .add-btn-primary {
   background-color: #28a745;
   color: white;
-  padding: 0.75rem 1.5rem;
-  font-weight: 700;
-  border-radius: 8px;
+  border-color: #28a745;
   box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
 }
 
-.add-btn-primary:hover {
+.add-btn-primary:hover:not(:disabled) {
   background-color: #218838;
-  transform: translateY(-2px);
+  border-color: #218838;
+  transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(40, 167, 69, 0.3);
 }
 
@@ -77,10 +73,8 @@
 }
 
 .personnel-content {
-  display: flex;
-  gap: 1.5rem; /* Reduced gap */
+  display: block;
   flex-grow: 1;
-  overflow: hidden;
 }
 
 .table-wrapper {
@@ -106,6 +100,35 @@
   border-bottom: 1px solid var(--gray-200); /* Thinner border */
   position: sticky;
   top: 0;
+  white-space: nowrap;
+}
+
+.sortable-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sortable-header-btn:hover {
+  color: var(--primary-blue);
+}
+
+.sort-indicator {
+  font-size: 0.75rem;
+  color: var(--gray-400);
+}
+
+.sortable-header-btn:hover .sort-indicator,
+.sort-indicator:not(:empty) {
+  color: var(--primary-blue);
 }
 
 .personnel-table td {
@@ -200,8 +223,12 @@
 }
 
 .profile-edit input[type='text'],
+.profile-edit input[type='email'],
+.profile-edit input[type='password'],
 .profile-edit select,
 .profile-edit textarea {
+  width: 100%;
+  box-sizing: border-box;
   border-radius: 8px;
   border: 1px solid var(--gray-300);
   padding: 0.7rem;
@@ -209,11 +236,60 @@
 }
 
 .profile-edit input[type='text']:focus,
+.profile-edit input[type='email']:focus,
+.profile-edit input[type='password']:focus,
 .profile-edit select:focus,
 .profile-edit textarea:focus {
   outline: none;
   border-color: var(--primary-blue);
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+}
+
+/* Section Checkbox Multi-Select */
+.section-checkbox-list {
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 0.5rem;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--white);
+}
+
+.section-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 400;
+  font-size: 0.9rem;
+  color: var(--gray-700);
+  transition: background-color 0.15s ease;
+}
+
+.section-checkbox-item:hover {
+  background-color: var(--light-blue);
+}
+
+.section-checkbox-item input[type='checkbox'] {
+  width: auto;
+  accent-color: var(--primary-blue);
+}
+
+.no-sections-msg {
+  color: var(--gray-400);
+  font-size: 0.85rem;
+  padding: 0.5rem;
+  margin: 0;
+  font-style: italic;
+}
+
+.field-help-text {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  color: var(--gray-500);
+  line-height: 1.4;
 }
 
 .edit-actions {
@@ -222,18 +298,65 @@
   margin-top: 1.5rem;
 }
 
+/* Shared personnel button sizing */
+.personnel-btn,
+.edit-btn,
+.delete-btn-outline,
+.save-btn,
+.cancel-btn,
+.export-btn-outline,
+.add-btn-primary,
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  padding: 0 1.25rem;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.edit-btn:disabled,
+.delete-btn-outline:disabled,
+.save-btn:disabled,
+.cancel-btn:disabled,
+.export-btn-outline:disabled,
+.add-btn-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .save-btn {
-  flex: 2;
   background-color: #28a745;
   color: white;
-  border-radius: 8px;
+  border-color: #28a745;
+}
+
+.save-btn:hover:not(:disabled) {
+  background-color: #218838;
+  border-color: #218838;
 }
 
 .cancel-btn {
-  flex: 1;
   background-color: var(--gray-500);
   color: white;
-  border-radius: 8px;
+  border-color: var(--gray-500);
+}
+
+.cancel-btn:hover:not(:disabled) {
+  background-color: var(--gray-600);
+  border-color: var(--gray-600);
 }
 
 .profile-actions {
@@ -243,27 +366,51 @@
   margin-top: 1.5rem;
 }
 
-.delete-btn-outline {
+.profile-actions .edit-btn,
+.profile-actions .delete-btn-outline,
+.profile-card .edit-btn {
   width: 100%;
-  background-color: transparent;
-  color: #dc3545;
-  border: 1px solid #dc3545;
-  padding: 0.7rem 1rem;
-  border-radius: 8px;
-  font-weight: 600;
 }
 
-.delete-btn-outline:hover {
+.delete-btn-outline {
+  background-color: transparent;
+  color: #dc3545;
+  border-color: #dc3545;
+}
+
+.delete-btn-outline:hover:not(:disabled) {
   background-color: #dc3545;
   color: white;
 }
 
 .edit-btn {
-  width: 100%;
   background-color: var(--primary-blue);
   color: white;
-  border-radius: 8px;
-  padding: 0.7rem 1rem;
+  border-color: var(--primary-blue);
+}
+
+.edit-btn:hover:not(:disabled) {
+  background-color: var(--secondary-blue);
+  border-color: var(--secondary-blue);
+}
+
+.back-btn {
+  background-color: transparent;
+  color: var(--primary-blue);
+  border-color: var(--gray-300);
+}
+
+.back-btn:hover:not(:disabled) {
+  background-color: var(--light-blue);
+  border-color: var(--primary-blue);
+}
+
+.edit-actions .save-btn {
+  flex: 2;
+}
+
+.edit-actions .cancel-btn {
+  flex: 1;
 }
 
 /* Dark Mode */
@@ -326,3 +473,135 @@ body.dark .profile-edit input, body.dark .profile-edit select, body.dark .profil
     padding: 1.5rem;
   }
 }
+
+/* Personnel Filters Bar */
+.personnel-filters-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 100%;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  background: var(--white);
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.search-box {
+  flex: 1.5;
+  min-width: 250px;
+  display: flex;
+  align-items: center;
+}
+
+.search-box .search-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-300);
+  padding: 0 1rem;
+  font-size: 0.95rem;
+}
+
+.filter-dropdowns {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  flex: 2;
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.filter-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.filter-group select {
+  height: 42px;
+  padding: 0 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--gray-300);
+  background: var(--white);
+  font-size: 0.95rem;
+  cursor: pointer;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.filter-group select:focus {
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+}
+
+/* Subject Checkbox Grid */
+.subject-checkbox-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.5rem;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--white);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.subject-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--gray-700);
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.subject-checkbox-item:hover {
+  background-color: var(--light-blue);
+}
+
+.subject-checkbox-item input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--primary-blue);
+}
+
+/* Dark Mode Overrides for Filters & Specializations */
+body.dark .personnel-filters-bar {
+  background: #2d2d2d;
+  border-color: #444;
+}
+
+body.dark .search-box .search-input,
+body.dark .filter-group select,
+body.dark .subject-checkbox-list {
+  background-color: #3d3d3d;
+  color: white;
+  border-color: #555;
+}
+
+body.dark .filter-group label {
+  color: #ccc;
+}
+
+body.dark .subject-checkbox-item {
+  color: #ddd;
+}
+
+body.dark .subject-checkbox-item:hover {
+  background-color: #3a3a3a;
+}
+

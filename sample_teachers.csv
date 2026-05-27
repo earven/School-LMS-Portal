@@ -1,0 +1,3 @@
+Email,Password,LastName,FirstName,MiddleInitial,Extension,Position,Role,AssignedAncillary,Specializations
+teacher.sample@vinapor.edu.ph,password123,Clara,Maria,S,,Teacher I,teacher,Grade 7 Adviser,English
+teacher.demo@vinapor.edu.ph,password123,"Dela Cruz",Juan,M,,Teacher II,teacher,Grade 8 Adviser,Science

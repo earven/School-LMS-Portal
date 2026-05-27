@@ -15,6 +15,14 @@ const TeacherToolsHub = () => {
       color: '#4e73df'
     },
     {
+      id: 'teaching-load',
+      title: 'Teaching Load',
+      description: 'Manage subject assignments per school year (not stored in personnel profile).',
+      icon: '📚',
+      path: '/teacher-tools/teaching-load',
+      color: '#36b9cc'
+    },
+    {
       id: 'e-filers',
       title: 'e-FILERS',
       description: 'Digital Filing System to upload and organize documents.',

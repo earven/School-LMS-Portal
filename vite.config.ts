@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 
@@ -10,8 +10,8 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    port: 5175,
-    strictPort: true,
+    port: 5176, // Changed to a different port
+    strictPort: false, // Optional: set to false to allow Vite to pick another port if 5176 is busy
   },
   test: {
     globals: true,
