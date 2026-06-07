@@ -143,7 +143,7 @@ const getBannerProps = (task) => {
 };
 
 const SubmissionTracker = () => {
-  const { tasks, responses, createTask, updateTask, submitResponse, deleteTask } = useSubmissions();
+  const { tasks, responses, createTask, updateTask, submitResponse, deleteTask, reviewResponse } = useSubmissions();
   const { user } = useAuth();
   const { personnel } = usePersonnel(); // For selecting specific recipients
   const { sections } = useSections();
@@ -172,7 +172,68 @@ const SubmissionTracker = () => {
   const [isEditingTask, setIsEditingTask] = useState(false);
   const [editTaskId, setEditTaskId] = useState(null);
 
+  // New Search & Filter States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [adminResponseFilter, setAdminResponseFilter] = useState('all'); // 'all', 'submitted', 'pending'
+
+  // Admin submission review state
+  const [selectedResponse, setSelectedResponse] = useState(null);
+  const [reviewForm, setReviewForm] = useState({
+    status: 'Approved',
+    feedback: ''
+  });
+
+  // Toast state
+  const [toast, setToast] = useState(null);
+
+  const showToastMsg = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 4500);
+  };
+
+  const handleSelectResponse = (row) => {
+    if (!row.response) return; // Can't review what has not been submitted
+    setSelectedResponse(row.response);
+    setReviewForm({
+      status: row.response.status || 'Approved',
+      feedback: row.response.feedback || ''
+    });
+  };
+
+  const handleSaveReview = async (e) => {
+    e.preventDefault();
+    try {
+      await reviewResponse(selectedResponse.id, reviewForm);
+      setSelectedResponse(null);
+      showToastMsg('Submission reviewed successfully!', 'success');
+    } catch (err) {
+      showToastMsg('Failed to save review: ' + err.message, 'error');
+    }
+  };
+
   const isAdmin = ['admin', 'system_admin'].includes(user?.role);
+
+  const getTargetTeachers = (task) => {
+    const allTeachers = personnel.filter(p => p.role === 'teacher');
+    if (!task) return [];
+    if (task.recipients === 'all') return allTeachers;
+    if (task.recipients === 'advisers') return allTeachers.filter(t => adviserIds.has(t.id));
+    if (task.recipients === 'non-advisers') return allTeachers.filter(t => !adviserIds.has(t.id));
+    if (typeof task.recipients === 'string' && task.recipients.startsWith('subject:')) {
+      const sub = task.recipients.replace('subject:', '');
+      return allTeachers.filter(t => (t.subjects || []).includes(sub));
+    }
+    if (Array.isArray(task.recipients)) {
+      return allTeachers.filter(t => task.recipients.includes(t.id));
+    }
+    if (typeof task.recipients === 'string') {
+      return allTeachers.filter(t => t.id === task.recipients);
+    }
+    return [];
+  };
 
   const openCreateModal = () => {
     setIsEditingTask(false);
@@ -258,17 +319,17 @@ const SubmissionTracker = () => {
     try {
       if (isEditingTask) {
         await updateTask(editTaskId, newTask);
-        alert('Submission task updated successfully!');
+        showToastMsg('Submission task updated successfully!', 'success');
       } else {
         await createTask(newTask);
-        alert('Submission task created and sent to teachers!');
+        showToastMsg('Submission task created and sent to teachers!', 'success');
       }
       setShowCreateModal(false);
       setNewTask({ title: '', description: '', deadline: '', recipients: [], folderLink: '', linkType: 'onedrive' });
       setEditTaskId(null);
       setIsEditingTask(false);
     } catch (err) {
-      alert(`Failed to ${isEditingTask ? 'update' : 'create'} task: ${err?.message || 'Please check Firestore rules and permissions.'}`);
+      showToastMsg(`Failed to ${isEditingTask ? 'update' : 'create'} task: ${err?.message || 'Please check permissions.'}`, 'error');
     }
   };
 
@@ -278,9 +339,9 @@ const SubmissionTracker = () => {
       await submitResponse(selectedTask.id, responseForm);
       setShowDetailModal(false);
       setResponseForm({ remarks: '', link: '' });
-      alert('Report submitted successfully!');
+      showToastMsg('Report submitted successfully!', 'success');
     } catch (err) {
-      alert('Failed to submit report.');
+      showToastMsg('Failed to submit report: ' + err.message, 'error');
     }
   };
 
@@ -290,45 +351,37 @@ const SubmissionTracker = () => {
   };
 
   const getAdminStats = (task) => {
-    const taskResponses = responses.filter(r => r.submissionId === task.id);
-    const allTeachers = personnel.filter(p => p.role === 'teacher');
-    
-    let totalCount = allTeachers.length;
-    
-    if (task.recipients === 'advisers' || task.recipients === 'non-advisers') {
-      if (task.recipients === 'advisers') {
-        totalCount = allTeachers.filter(t => adviserIds.has(t.id)).length;
-      } else {
-        totalCount = allTeachers.filter(t => !adviserIds.has(t.id)).length;
-      }
-    } else if (typeof task.recipients === 'string' && task.recipients.startsWith('subject:')) {
-      const sub = task.recipients.replace('subject:', '');
-      totalCount = allTeachers.filter(t => (t.subjects || []).includes(sub)).length;
-    } else if (task.recipients !== 'all') {
-      // Individual teacher
-      totalCount = 1;
-    }
+    const targets = getTargetTeachers(task);
+    const targetIds = new Set(targets.map(t => t.id));
+    const submittedCount = responses.filter(r => r.submissionId === task.id && targetIds.has(r.userId)).length;
     
     return {
-      count: taskResponses.length,
-      total: totalCount
+      count: submittedCount,
+      total: targets.length
     };
   };
 
   const handleExportResponses = () => {
     if (!selectedTask) return;
+    const targets = getTargetTeachers(selectedTask);
     const taskResponses = responses.filter(r => r.submissionId === selectedTask.id);
-    const headers = ['Teacher', 'Date Submitted', 'Link', 'Remarks', 'Status'];
+    const responseMap = new Map(taskResponses.map(r => [r.userId, r]));
+
+    const headers = ['Teacher Name', 'Email', 'Role/Position', 'Status', 'Date Submitted', 'Link', 'Remarks'];
     const csvContent = [
       headers.join(','),
-      ...taskResponses.map(r => {
-        const personnelName = personnel.find(p => p.id === r.userId)?.fullName || r.userName || 'Unknown';
+      ...targets.map(t => {
+        const resp = responseMap.get(t.id);
+        const isOverdue = new Date(selectedTask.deadline) < new Date() && !resp;
+        const status = resp ? 'Submitted' : (isOverdue ? 'Overdue' : 'Pending');
         return [
-          `"${personnelName}"`,
-          `"${formatDateTime(r.submittedAt)}"`,
-          `"${r.link || ''}"`,
-          `"${r.remarks || ''}"`,
-          `"${r.status || 'Submitted'}"`
+          `"${t.fullName || 'Unknown'}"`,
+          `"${t.email || ''}"`,
+          `"${t.position || 'Teacher'}"`,
+          `"${status}"`,
+          `"${resp ? formatDateTime(resp.submittedAt) : 'N/A'}"`,
+          `"${resp?.link || ''}"`,
+          `"${(resp?.remarks || '').replace(/"/g, '""')}"`
         ].join(',');
       })
     ].join('\n');
@@ -358,51 +411,154 @@ const SubmissionTracker = () => {
         )}
       </div>
 
+      {/* SEARCH AND FILTERS BAR */}
+      <div className="filters-bar">
+        <div className="search-wrapper">
+          <span className="search-icon">🔍</span>
+          <input 
+            type="text" 
+            placeholder="Search tasks by title or details..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="search-input"
+          />
+        </div>
+        <div className="status-filters">
+          <button 
+            className={`filter-btn ${statusFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('all')}
+          >
+            All Tasks
+          </button>
+          <button 
+            className={`filter-btn ${statusFilter === 'pending' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('pending')}
+          >
+            Pending
+          </button>
+          <button 
+            className={`filter-btn ${statusFilter === 'submitted' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('submitted')}
+          >
+            Submitted
+          </button>
+          <button 
+            className={`filter-btn ${statusFilter === 'overdue' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('overdue')}
+          >
+            Overdue
+          </button>
+        </div>
+      </div>
+
       <div className="task-grid">
-        {tasks
-          .filter(task => {
-            if (isAdmin) return true;
-            if (task.recipients === 'all') return true;
-            if (task.recipients === 'advisers') return isTeacherAdviser;
-            if (task.recipients === 'non-advisers') return !isTeacherAdviser;
-            if (typeof task.recipients === 'string' && task.recipients.startsWith('subject:')) {
-              const sub = task.recipients.replace('subject:', '');
-              return (user?.subjects || []).includes(sub);
-            }
-            return task.recipients === user?.uid;
-          })
-          .map(task => {
+        {(() => {
+          const filteredTasks = tasks
+            .filter(task => {
+              if (isAdmin) return true;
+              if (task.recipients === 'all') return true;
+              if (task.recipients === 'advisers') return isTeacherAdviser;
+              if (task.recipients === 'non-advisers') return !isTeacherAdviser;
+              if (typeof task.recipients === 'string' && task.recipients.startsWith('subject:')) {
+                const sub = task.recipients.replace('subject:', '');
+                return (user?.subjects || []).includes(sub);
+              }
+              if (Array.isArray(task.recipients)) {
+                return task.recipients.includes(user?.uid);
+              }
+              return task.recipients === user?.uid;
+            })
+            .filter(task => {
+              const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                    task.description.toLowerCase().includes(searchQuery.toLowerCase());
+              
+              const status = isAdmin ? 'Admin' : getStatus(task.id);
+              const isOverdue = new Date(task.deadline) < new Date() && status === 'Pending';
+              
+              let matchesStatus = true;
+              if (statusFilter === 'pending') matchesStatus = status === 'Pending' && !isOverdue;
+              else if (statusFilter === 'submitted') matchesStatus = status === 'Submitted';
+              else if (statusFilter === 'overdue') matchesStatus = isOverdue;
+
+              return matchesSearch && matchesStatus;
+            });
+
+          if (filteredTasks.length === 0) {
+            return (
+              <div className="empty-state-card">
+                <div className="empty-state-icon">📋</div>
+                <h3>No Submission Tasks Found</h3>
+                <p>There are no tasks that match your search filters or target assignments.</p>
+              </div>
+            );
+          }
+
+          return filteredTasks.map(task => {
             const status = isAdmin ? 'Admin' : getStatus(task.id);
             const stats = isAdmin ? getAdminStats(task) : null;
             const isOverdue = new Date(task.deadline) < new Date() && status === 'Pending';
             
             const isTargeted = task.recipients !== 'all';
-            const targetPerson = isTargeted ? personnel.find(p => p.id === task.recipients) : null;
+            const targetPerson = isTargeted && typeof task.recipients === 'string' ? personnel.find(p => p.id === task.recipients) : null;
+            const targetCount = Array.isArray(task.recipients) ? task.recipients.length : null;
 
             return (
               <div 
                 key={task.id} 
-                className={`task-card ${status.toLowerCase()} ${isOverdue ? 'overdue' : ''}`}
+                className={`task-card ${status.toLowerCase().replace(/\s+/g, '-')} ${isOverdue ? 'overdue' : ''}`}
                 onClick={() => {
                   setSelectedTask(task);
+                  setAdminResponseFilter('all');
+                  setSelectedResponse(null); // Reset review inspector
+                  // Load response form values if teacher has already submitted
+                  const existingResponse = responses.find(r => r.submissionId === task.id && r.userId === user.uid);
+                  if (existingResponse) {
+                    setResponseForm({
+                      remarks: existingResponse.remarks || '',
+                      link: existingResponse.link || ''
+                    });
+                  } else {
+                    setResponseForm({ remarks: '', link: '' });
+                  }
                   setShowDetailModal(true);
                 }}
               >
                 <div className="task-card-header">
-                  <span className={`status-badge ${status.toLowerCase()}`}>
+                  <span className={`status-badge ${status.toLowerCase().replace(/\s+/g, '-')}`}>
                     {isAdmin ? `${stats.count} / ${stats.total} Submitted` : status}
                   </span>
                   <span className="deadline-tag">Due: {formatDate(task.deadline)}</span>
                 </div>
                 <h3>{task.title}</h3>
-                {isAdmin && task.recipients !== 'all' && (
+                {isAdmin && (
                   <p className="task-target-badge">
+                    {task.recipients === 'all' && '🎯 Target: All Teachers'}
                     {task.recipients === 'advisers' && '🎯 Target: Advisers Only'}
                     {task.recipients === 'non-advisers' && '🎯 Target: Non-Advisers Only'}
                     {typeof task.recipients === 'string' && task.recipients.startsWith('subject:') && `🎯 Target: ${task.recipients.replace('subject:', '').toUpperCase()} Teachers Only`}
                     {targetPerson && `🎯 Target: ${targetPerson.fullName || targetPerson.email}`}
+                    {targetCount && `🎯 Target: ${targetCount} Selected Teachers`}
                   </p>
                 )}
+
+                {/* Progress bar for admin */}
+                {isAdmin && stats && (
+                  <div className="progress-container">
+                    <div className="progress-bar-label">
+                      <span>Completion Rate</span>
+                      <span>{stats.total > 0 ? Math.round((stats.count / stats.total) * 100) : 0}%</span>
+                    </div>
+                    <div className="progress-track">
+                      <div 
+                        className="progress-fill" 
+                        style={{ width: `${stats.total > 0 ? (stats.count / stats.total) * 100 : 0}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                {isOverdue && !isAdmin && <div className="overdue-warning-tag">⚠️ OVERDUE</div>}
+
                 <p className="task-desc">{task.description}</p>
                 {task.folderLink && (() => {
                   const indicator = getLinkIndicator(task);
@@ -426,7 +582,8 @@ const SubmissionTracker = () => {
                 </div>
               </div>
             );
-        })}
+          });
+        })()}
       </div>
 
       {/* CREATE TASK MODAL */}
@@ -562,7 +719,10 @@ const SubmissionTracker = () => {
           <div className="modal-content detail-modal">
             <div className="modal-header">
               <h2>{selectedTask.title}</h2>
-              <button className="close-x" onClick={() => setShowDetailModal(false)}>✕</button>
+              <button className="close-x" onClick={() => {
+                setSelectedResponse(null);
+                setShowDetailModal(false);
+              }}>✕</button>
             </div>
             
             <div className="modal-body-scroll">
@@ -596,57 +756,197 @@ const SubmissionTracker = () => {
               </div>
 
               {isAdmin ? (
-                <div className="admin-responses">
-                  <div className="admin-responses-header">
-                    <h3>Submission List</h3>
-                    <button className="export-csv-btn" onClick={handleExportResponses}>
-                      📥 Export CSV
+                selectedResponse ? (
+                  <div className="response-review-panel">
+                    <button 
+                      type="button" 
+                      className="back-to-list-btn" 
+                      onClick={() => setSelectedResponse(null)}
+                    >
+                      ← Back to Submission List
                     </button>
-                  </div>
-                  <div className="responses-table">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Teacher</th>
-                          <th>Date Submitted</th>
-                          <th>Link/Remarks</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {responses.filter(r => r.submissionId === selectedTask.id).map(r => {
-                          const personnelName = personnel.find(p => p.id === r.userId)?.fullName || r.userName || 'Unknown';
-                          return (
-                            <tr key={r.id}>
-                              <td>{personnelName}</td>
-                              <td>{formatDateTime(r.submittedAt)}</td>
-                              <td>
-                                {r.link && <a href={r.link} target="_blank" rel="noreferrer">View Link</a>}
-                                <p className="mini-remarks">{r.remarks}</p>
-                              </td>
-                              <td><span className="status-pill submitted">Submitted</span></td>
-                            </tr>
-                          );
-                        })}
-                        {responses.filter(r => r.submissionId === selectedTask.id).length === 0 && (
-                          <tr><td colSpan="4" className="empty-row">No submissions yet.</td></tr>
+                    <h3>Review Submission</h3>
+                    
+                    <div className="review-teacher-card">
+                      <strong>Teacher:</strong> {personnel.find(p => p.id === selectedResponse.userId)?.fullName || selectedResponse.userName || 'Unknown'}
+                      <br />
+                      <strong>Submitted At:</strong> {formatDateTime(selectedResponse.submittedAt)}
+                    </div>
+
+                    <div className="review-details">
+                      <div className="review-detail-item" style={{ marginBottom: '1rem' }}>
+                        <label>Submission Link / Proof</label>
+                        {selectedResponse.link ? (
+                          <a href={selectedResponse.link} target="_blank" rel="noreferrer" className="folder-access-btn inline">
+                            🔗 Open Submitted Link
+                          </a>
+                        ) : (
+                          <span className="no-link-text">No link attached</span>
                         )}
-                      </tbody>
-                    </table>
+                      </div>
+
+                      <div className="review-detail-item">
+                        <label>Teacher's Remarks</label>
+                        <p className="remarks-box">{selectedResponse.remarks || 'No remarks provided'}</p>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleSaveReview} className="review-form">
+                      <div className="form-group">
+                        <label>Review Status</label>
+                        <select
+                          value={reviewForm.status}
+                          onChange={e => setReviewForm({...reviewForm, status: e.target.value})}
+                        >
+                          <option value="Approved">Approved</option>
+                          <option value="Needs Revision">Needs Revision</option>
+                          <option value="Submitted">Pending Review / Submitted</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Feedback / Revision Instructions</label>
+                        <textarea
+                          placeholder="Provide feedback or instructions for revision..."
+                          value={reviewForm.feedback}
+                          onChange={e => setReviewForm({...reviewForm, feedback: e.target.value})}
+                        ></textarea>
+                      </div>
+
+                      <div className="modal-actions no-pad">
+                        <button type="button" className="cancel-btn" onClick={() => setSelectedResponse(null)}>Cancel</button>
+                        <button type="submit" className="submit-btn">Save Review</button>
+                      </div>
+                    </form>
                   </div>
-                </div>
+                ) : (
+                  <div className="admin-responses">
+                    <div className="admin-responses-header">
+                      <div className="admin-responses-title">
+                        <h3>Submission List Status</h3>
+                        <p className="subtitle-small">Track targeted teacher responses (Click a submitted row to inspect and review)</p>
+                      </div>
+                      <div className="admin-actions-row">
+                        <select 
+                          value={adminResponseFilter}
+                          onChange={e => setAdminResponseFilter(e.target.value)}
+                          className="admin-response-select"
+                        >
+                          <option value="all">All Targets</option>
+                          <option value="submitted">Submitted Only</option>
+                          <option value="pending">Pending Only</option>
+                        </select>
+                        <button className="export-csv-btn" onClick={handleExportResponses}>
+                          📥 Export CSV
+                        </button>
+                      </div>
+                    </div>
+                    <div className="responses-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Teacher</th>
+                            <th>Status</th>
+                            <th>Date Submitted</th>
+                            <th>Submission Proof / Remarks</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const targets = getTargetTeachers(selectedTask);
+                            const taskResponses = responses.filter(r => r.submissionId === selectedTask.id);
+                            const responseMap = new Map(taskResponses.map(r => [r.userId, r]));
+
+                            const rows = targets.map(t => {
+                              const resp = responseMap.get(t.id);
+                              const isOverdue = new Date(selectedTask.deadline) < new Date() && !resp;
+                              const statusLabel = resp ? resp.status || 'Submitted' : (isOverdue ? 'Overdue' : 'Pending');
+                              return { teacher: t, response: resp, status: statusLabel };
+                            }).filter(row => {
+                              if (adminResponseFilter === 'submitted') return !!row.response;
+                              if (adminResponseFilter === 'pending') return !row.response;
+                              return true;
+                            });
+
+                            if (rows.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan="4" className="empty-row">
+                                    No matching targets found.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return rows.map(({ teacher, response, status }) => (
+                              <tr 
+                                key={teacher.id} 
+                                className={`status-row-${status.toLowerCase().replace(/\s+/g, '-')} ${response ? 'clickable-row' : ''}`}
+                                onClick={() => response && handleSelectResponse({ teacher, response, status })}
+                              >
+                                <td>
+                                  <div className="table-teacher-info">
+                                    <span className="table-teacher-name">{teacher.fullName || teacher.email}</span>
+                                    <span className="table-teacher-sub">{teacher.position || 'Teacher'}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span className={`status-pill ${status.toLowerCase().replace(/\s+/g, '-')}`}>
+                                    {status}
+                                  </span>
+                                </td>
+                                <td>
+                                  {response ? formatDateTime(response.submittedAt) : '—'}
+                                </td>
+                                <td>
+                                  {response ? (
+                                    <div className="submission-details-td">
+                                      {response.link && (
+                                        <a 
+                                          href={response.link} 
+                                          target="_blank" 
+                                          rel="noreferrer" 
+                                          className="table-submission-link"
+                                          onClick={e => e.stopPropagation()}
+                                        >
+                                          🔗 View Link
+                                        </a>
+                                      )}
+                                      {response.remarks && <p className="mini-remarks">{response.remarks}</p>}
+                                    </div>
+                                  ) : (
+                                    <span className="pending-text-placeholder">Not submitted yet</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
               ) : (
                 <div className="teacher-submit-form">
                   {(() => {
                     const banner = getBannerProps(selectedTask);
+                    const userResponse = responses.find(r => r.submissionId === selectedTask.id && r.userId === user.uid);
                     return (
-                      <div className={`onedrive-banner ${(selectedTask.linkType || detectLinkType(selectedTask.folderLink))}-banner-type`}>
-                        <div className="onedrive-icon">{banner.icon}</div>
-                        <div className="onedrive-text">
-                          <strong>{banner.title}</strong>
-                          <p>{banner.text}</p>
+                      <>
+                        {userResponse && userResponse.feedback && (
+                          <div className={`review-feedback-banner ${userResponse.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                            <strong>Review Status: {userResponse.status}</strong>
+                            <p><strong>Admin Feedback:</strong> {userResponse.feedback}</p>
+                          </div>
+                        )}
+                        <div className={`onedrive-banner ${(selectedTask.linkType || detectLinkType(selectedTask.folderLink))}-banner-type`}>
+                          <div className="onedrive-icon">{banner.icon}</div>
+                          <div className="onedrive-text">
+                            <strong>{banner.title}</strong>
+                            <p>{banner.text}</p>
+                          </div>
                         </div>
-                      </div>
+                      </>
                     );
                   })()}
                   <form onSubmit={handleSubmitResponse}>
@@ -676,6 +976,12 @@ const SubmissionTracker = () => {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`toast-message ${toast.type}`}>
+          <span className="toast-icon">{toast.type === 'success' ? '✅' : '❌'}</span>
+          <span className="toast-text">{toast.message}</span>
         </div>
       )}
     </div>

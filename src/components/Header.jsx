@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { useNotifications } from '../context/NotificationContext.jsx';
@@ -7,7 +7,7 @@ import './Header.css';
 
 const Header = () => {
   const { user } = useAuth();
-  const { settings } = useSettings();
+  const { settings, updateSettings, sessionAcademicYear, setSessionAcademicYear, isReadOnly } = useSettings();
   const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification, setSelectedNotification } = useNotifications();
   const location = useLocation();
   const navigate = useNavigate();
@@ -24,25 +24,27 @@ const Header = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getBreadcrumb = () => {
+  const getBreadcrumbs = () => {
     const path = location.pathname;
-    if (path === '/dashboard') return 'Portal / Dashboard';
-    if (path === '/students') return 'Portal / Student Management';
-    if (path === '/personnel') return 'Portal / Personnel Management';
-    if (path === '/personnel/configure-fields') return 'Portal / Personnel Management / Configure Fields';
-    if (path === '/personnel/new') return 'Portal / Personnel Management / Add New';
-    if (path.match(/^\/personnel\/[^/]+\/edit$/)) return 'Portal / Personnel Management / Edit Record';
-    if (path.startsWith('/personnel/')) return 'Portal / Personnel Management / Profile';
-    if (path === '/teacher-tools') return 'Portal / Teacher Tools';
-    if (path === '/teacher-tools/teaching-load') return 'Portal / Teacher Tools / Teaching Load';
+    const base = { label: 'Portal', path: '/dashboard' };
+
+    if (path === '/dashboard') return [base, { label: 'Dashboard', path: '/dashboard' }];
+    if (path === '/students') return [base, { label: 'Student Management', path: '/students' }];
+    if (path === '/personnel') return [base, { label: 'Personnel Management', path: '/personnel' }];
+    if (path === '/personnel/configure-fields') return [base, { label: 'Personnel Management', path: '/personnel' }, { label: 'Configure Fields', path: '/personnel/configure-fields' }];
+    if (path === '/personnel/new') return [base, { label: 'Personnel Management', path: '/personnel' }, { label: 'Add New', path: '/personnel/new' }];
+    if (path.match(/^\/personnel\/[^/]+\/edit$/)) return [base, { label: 'Personnel Management', path: '/personnel' }, { label: 'Edit Record', path: path }];
+    if (path.startsWith('/personnel/')) return [base, { label: 'Personnel Management', path: '/personnel' }, { label: 'Profile', path: path }];
+    if (path === '/teacher-tools') return [base, { label: 'Teacher Tools', path: '/teacher-tools' }];
+    if (path === '/teacher-tools/teaching-load') return [base, { label: 'Teacher Tools', path: '/teacher-tools' }, { label: 'Teaching Load', path: '/teacher-tools/teaching-load' }];
     if (path.startsWith('/teacher-tools/')) {
       const tool = path.split('/').pop();
       const toolName = tool.charAt(0).toUpperCase() + tool.slice(1).replace('-', ' ');
-      return `Portal / Teacher Tools / ${toolName}`;
+      return [base, { label: 'Teacher Tools', path: '/teacher-tools' }, { label: toolName, path: path }];
     }
-    if (path === '/settings') return 'Portal / System Settings';
-    if (path === '/sections') return 'Portal / Section Management';
-    return 'Portal';
+    if (path === '/settings') return [base, { label: 'System Settings', path: '/settings' }];
+    if (path === '/sections') return [base, { label: 'Section Management', path: '/sections' }];
+    return [base];
   };
 
   const handleNotificationClick = async (notif) => {
@@ -77,7 +79,18 @@ const Header = () => {
   return (
     <header className="main-header">
       <div className="header-left">
-        <span className="breadcrumb">{getBreadcrumb()}</span>
+        <span className="breadcrumb">
+          {getBreadcrumbs().map((crumb, index, array) => (
+            <React.Fragment key={index}>
+              {index > 0 && <span className="breadcrumb-separator"> / </span>}
+              {index === array.length - 1 ? (
+                <span className="breadcrumb-current">{crumb.label}</span>
+              ) : (
+                <Link to={crumb.path} className="breadcrumb-link">{crumb.label}</Link>
+              )}
+            </React.Fragment>
+          ))}
+        </span>
       </div>
       <div className="header-right">
         {/* Real-time Notifications Bell */}
@@ -146,8 +159,40 @@ const Header = () => {
           )}
         </div>
 
-        <div className="academic-year-badge">
-          AY {settings.academicYear}
+        <div className="academic-year-selector">
+          {isReadOnly && (
+            <span className="read-only-badge" style={{ 
+              backgroundColor: '#fee2e2', 
+              color: '#ef4444', 
+              padding: '2px 8px', 
+              borderRadius: '12px', 
+              fontSize: '0.75rem', 
+              fontWeight: '600',
+              marginRight: '8px'
+            }}>
+              READ-ONLY
+            </span>
+          )}
+          <span className="calendar-icon">📅</span>
+          <select 
+            value={sessionAcademicYear} 
+            onChange={(e) => setSessionAcademicYear(e.target.value)}
+            className="academic-year-select"
+          >
+            {Array.from({ length: 12 }, (_, i) => {
+              const start = 2024 + i;
+              const sy = `${start}-${start + 1}`;
+              let label = `SY ${sy}`;
+              if (sy === settings.academicYear) {
+                label += settings.academicYearStatus === 'locked' ? ' (Locked)' : ' (Active)';
+              }
+              return (
+                <option key={sy} value={sy}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
         </div>
       </div>
     </header>

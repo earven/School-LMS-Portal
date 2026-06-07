@@ -1,6 +1,6 @@
 // src/pages/LoginPage.test.jsx
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { BrowserRouter as Router } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import LoginPage from './LoginPage';
 import { AuthProvider } from '../context/AuthContext';
 import { SettingsProvider } from '../context/SettingsContext';
@@ -32,6 +32,8 @@ vi.mock('firebase/firestore', async (importOriginal) => {
     ...mod,
     doc: vi.fn(),
     getDoc: vi.fn(),
+    onSnapshot: vi.fn(() => vi.fn()),
+    setDoc: vi.fn(),
   };
 });
 
@@ -40,11 +42,16 @@ const renderWithProviders = (ui) => {
   let rendered;
   act(() => { // Wrap render in act
     rendered = render(
-      <Router>
+      <MemoryRouter initialEntries={['/login']}>
         <SettingsProvider>
-          <AuthProvider>{ui}</AuthProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={ui} />
+              <Route path="/dashboard" element={<div data-testid="dashboard-page">Dashboard Page</div>} />
+            </Routes>
+          </AuthProvider>
         </SettingsProvider>
-      </Router>
+      </MemoryRouter>
     );
   });
   return rendered;
@@ -92,9 +99,8 @@ describe('LoginPage', () => {
       fireEvent.click(screen.getByRole('button', { name: /sign in to portal/i }));
     });
 
-    await screen.findByText(/Firebase: Error/i); // More generic matcher
-    // Also assert that the error message is visible using a more flexible query
-    const errorMessageElement = screen.getByText(new RegExp(firebaseErrorMessagePart, 'i'));
+    await screen.findByText(/Invalid email or password/i);
+    const errorMessageElement = screen.getByText(/Invalid email or password/i);
     expect(errorMessageElement).toBeInTheDocument();
     
     expect(firebaseAuth.signInWithEmailAndPassword).toHaveBeenCalledWith(
@@ -133,8 +139,7 @@ describe('LoginPage', () => {
     
 
     await waitFor(() => {
-        // Assert on the expected pathname change
-        expect(window.location.pathname).toBe('/dashboard');
+        expect(screen.getByTestId('dashboard-page')).toBeInTheDocument();
     }, { timeout: 2000 }); // Increased timeout for async operations
   });
 
@@ -147,13 +152,15 @@ describe('LoginPage', () => {
   
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
+    // Get button before it changes state
+    const signInButton = screen.getByRole('button', { name: /sign in to portal/i });
+    
     await act(async () => { // Wrap click that triggers async state update
-      fireEvent.click(screen.getByRole('button', { name: /sign in to portal/i }));
+      fireEvent.click(signInButton);
     });
   
     await waitFor(() => {
       // Check that the button is disabled and contains the spinner element
-      const signInButton = screen.getByRole('button', { name: /sign in to portal/i });
       expect(signInButton).toBeDisabled();
       // The button text is conditionally rendered. If spinner is shown, text is empty.
       expect(signInButton).not.toHaveTextContent(/sign in to portal/i);

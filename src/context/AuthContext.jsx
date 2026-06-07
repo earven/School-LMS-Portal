@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 const AuthContext = createContext(null);
 
@@ -36,20 +36,21 @@ export const AuthProvider = ({ children }) => {
         const userDoc = await getDoc(userDocRef);
 
         if (userDoc.exists()) {
-          setUser({ ...firebaseUser, ...userDoc.data() });
+          setUser({ ...firebaseUser, ...userDoc.data(), uid: firebaseUser.uid });
         } else {
-          // If no user doc, create one with default role
+          // If no user doc, create one with pending role so they are forced to enter the registration code
           const newUserDoc = {
             email: firebaseUser.email,
             firstName: firebaseUser.displayName?.split(' ')[0] || '',
             lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
-            role: 'teacher', // Default role so they can log in
+            role: 'pending', // Requires registration code to become 'teacher'
             photoURL: firebaseUser.photoURL || '',
+            hasAcceptedDPA: false,
             createdAt: new Date().toISOString()
           };
           try {
             await setDoc(userDocRef, newUserDoc);
-            setUser({ ...firebaseUser, ...newUserDoc });
+            setUser({ ...firebaseUser, ...newUserDoc, uid: firebaseUser.uid });
           } catch (err) {
             console.error("Error creating user doc:", err);
             setUser(firebaseUser);
@@ -124,10 +125,6 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const userDocRef = doc(db, 'users', user.uid);
       
-      // We will use updateDoc but we need to import it. Wait, I should import updateDoc from firebase/firestore.
-      // I will do that in a separate replacement or I can just use setDoc with merge: true to avoid missing imports if I don't want to add one, but it's better to add the import.
-      // For now let's just do the code and I'll add the import next.
-      const { updateDoc } = await import('firebase/firestore');
       await updateDoc(userDocRef, updates);
       
       setUser(prev => ({ ...prev, ...updates }));
@@ -140,8 +137,24 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const acceptDPA = async () => {
+    if (!user || !user.uid) return { success: false, error: 'No user signed in' };
+    try {
+      setLoading(true);
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, { hasAcceptedDPA: true });
+      setUser(prev => ({ ...prev, hasAcceptedDPA: true }));
+      setLoading(false);
+      return { success: true };
+    } catch (error) {
+      setLoading(false);
+      console.error("Accept DPA Error:", error);
+      return { success: false, error: error.message };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, loginWithGoogle, logout, resetPassword, updateUserProfile, loading }}>
+    <AuthContext.Provider value={{ user, login, loginWithGoogle, logout, resetPassword, updateUserProfile, acceptDPA, loading }}>
       {children}
     </AuthContext.Provider>
   );

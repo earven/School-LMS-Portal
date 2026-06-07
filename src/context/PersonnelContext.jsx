@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { adminAuth, db } from '../firebase';
-import { collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { useAuth } from './AuthContext';
 import { preparePersonnelForSave } from '../utils/personnelName';
@@ -20,18 +20,21 @@ export const PersonnelProvider = ({ children }) => {
   ]);
 
   useEffect(() => {
-    // Only fetch personnel if a user is authenticated
-    if (!user) {
+    // Only fetch personnel if a user is authenticated and authorized
+    if (!user || !user.role || user.role === 'pending') {
       setPersonnel([]);
+      setError(null);
       setLoading(false);
       return;
     }
 
+    setError(null);
     const q = query(collection(db, 'users'));
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
         const personnelData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setPersonnel(personnelData);
+        setError(null);
         setLoading(false);
       }, 
       (err) => {
@@ -82,6 +85,43 @@ export const PersonnelProvider = ({ children }) => {
       const personnelRef = doc(db, 'users', updatedPerson.id);
       await updateDoc(personnelRef, payload);
       console.log('Personnel updated in Firestore:', updatedPerson.id);
+
+      // Synchronize sections
+      const oldPerson = personnel.find(p => p.id === updatedPerson.id);
+      const oldSections = oldPerson?.assignedSections || [];
+      const newSections = updatedPerson.assignedSections || [];
+
+      const added = newSections.filter(s => !oldSections.includes(s));
+      const removed = oldSections.filter(s => !newSections.includes(s));
+
+      const displayName = `${updatedPerson.lastName}, ${updatedPerson.firstName}${updatedPerson.nameExtension ? ' ' + updatedPerson.nameExtension : ''}`;
+
+      // Handle added sections
+      for (const sectionId of added) {
+        const sectionRef = doc(db, 'sections', sectionId);
+        await updateDoc(sectionRef, {
+          adviserId: updatedPerson.id,
+          adviserName: displayName
+        });
+
+        // If another teacher previously advised this section, remove it from their assignedSections
+        const previousAdviser = personnel.find(p => p.id !== updatedPerson.id && (p.assignedSections || []).includes(sectionId));
+        if (previousAdviser) {
+          const updatedPrevSections = (previousAdviser.assignedSections || []).filter(s => s !== sectionId);
+          await updateDoc(doc(db, 'users', previousAdviser.id), {
+            assignedSections: updatedPrevSections
+          });
+        }
+      }
+
+      // Handle removed sections
+      for (const sectionId of removed) {
+        const sectionRef = doc(db, 'sections', sectionId);
+        await updateDoc(sectionRef, {
+          adviserId: '',
+          adviserName: ''
+        });
+      }
     } catch (e) {
       console.error('Error updating personnel:', e);
       setError('Failed to update personnel.');
@@ -122,6 +162,15 @@ export const PersonnelProvider = ({ children }) => {
 
   const deletePersonnel = async (id) => {
     try {
+      // Find all sections advised by this teacher and clear them
+      const advisedSections = personnel.find(p => p.id === id)?.assignedSections || [];
+      for (const sectionId of advisedSections) {
+        await updateDoc(doc(db, 'sections', sectionId), {
+          adviserId: '',
+          adviserName: ''
+        });
+      }
+
       // NOTE: This only deletes the Firestore document.
       // The Firebase Auth account will persist. In production,
       // use a Cloud Function with admin SDK to also delete the Auth account:

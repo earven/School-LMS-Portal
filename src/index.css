@@ -6,6 +6,10 @@ html {
   font-size: 87.5%; /* Reduces base font size from 16px to 14px for a compact/wide layout */
 }
 
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 /* CSS Variables - Design System */
 :root {
   /* Core Brand Colors */
@@ -58,19 +62,32 @@ html {
 
 /* Dark Mode Tokens */
 body.dark {
-  --color-background: #111827;
-  --color-background-soft: #1f2937;
-  --color-background-mute: #374151;
-  --color-background-hover: #4b5563;
-  --color-border: #374151;
-  --color-heading: #f9fafb;
-  --color-text: #f3f4f6;
-  --color-text-light: #9ca3af;
-  --color-input-bg: #1f2937;
-  --color-input-text: #f9fafb;
-  --gray-200: #374151;
-  --gray-800: #f3f4f6;
-  --gray-900: #f9fafb;
+  --color-background: #0f172a; /* Slate 900 */
+  --color-background-soft: #0b0f19; /* Darker canvas background */
+  --color-background-mute: #1e293b; /* Slate 800 */
+  --color-background-hover: #334155; /* Slate 700 */
+  --color-border: #1e293b;
+  --color-heading: #f8fafc; /* Slate 50 */
+  --color-text: #cbd5e1; /* Slate 300 */
+  --color-text-light: #94a3b8; /* Slate 400 */
+  --color-input-bg: #1e293b;
+  --color-input-text: #f8fafc;
+  
+  --white: #111827; /* Remap white to dark cards/panels background */
+  --color-white: #111827;
+  
+  /* Invert gray scale for natural dark contrast */
+  --gray-50: #0b0f19;
+  --gray-100: #0f172a;
+  --gray-200: #1e293b;
+  --gray-300: #334155;
+  --gray-400: #8a99ad; /* Brighter gray for helper text in dark mode */
+  --gray-500: #a3b3c9; /* Brighter gray for labels and secondary text in dark mode */
+  --gray-600: #cbd5e1;
+  --gray-700: #e2e8f0;
+  --gray-800: #f1f5f9;
+  --gray-900: #f8fafc;
+  --light-blue: rgba(59, 130, 246, 0.15);
 }
 
 body {
@@ -101,4 +118,47 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--gray-400);
+}
+/* Global Buttons */
+.primary-btn,
+.secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.2s;
+}
+
+.primary-btn {
+  background: var(--primary-blue);
+  color: white;
+}
+.primary-btn:hover {
+  background: var(--secondary-blue);
+}
+
+.secondary-btn {
+  background: var(--gray-100);
+  color: var(--gray-800);
+  border-color: var(--gray-300);
+}
+.secondary-btn:hover {
+  background: var(--gray-200);
+}
+
+.text-btn {
+  background: transparent;
+  border: none;
+  color: var(--primary-blue);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.text-btn.danger {
+  color: #dc3545;
 }

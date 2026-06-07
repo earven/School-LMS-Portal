@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 const SettingsContext = createContext(null);
 
@@ -9,50 +11,72 @@ const FONT_SIZE_MAP = {
   'extra-compact': '81.25%'
 };
 
-export const SettingsProvider = ({ children }) => {
-  const defaultSettings = {
-    // School Identity
-    schoolName: 'Vinapor National High School',
-    schoolLogo: '', // Base64 string for now
-    motto: 'Aim High, Reach High',
-    description: 'Empowering students through digital transformation and streamlined school operations.',
-    
-    // Contact Information
-    phone: '0912-345-6789',
-    email: 'vinapor.nhs@example.edu',
-    address: 'Vinapor, Carmen, Agusan del Norte',
-    facebookUrl: 'https://facebook.com/vinapornhs',
-    
-    // System Preferences
-    academicYear: '2025-2026',
-    enabledModules: {
-      studentManagement: true,
-      personnelManagement: true,
-      teacherTools: true
-    },
-    enableFileUpload: true,
-    
-    // Appearance Settings
-    primaryColor: '#2563eb',
-    theme: 'light',
-    fontSize: 'compact',
-    logoPosition: 'left',
-    heroBackground: '' // Base64 or URL
-  };
+const defaultSettings = {
+  // School Identity
+  schoolName: 'Your School Name',
+  schoolId: '',
+  region: '',
+  division: '',
+  schoolLogo: '', // Base64 string for now
+  motto: 'Empowering Education, Shaping Futures',
+  description: 'Empowering students through digital transformation and streamlined school operations.',
+  
+  // Contact Information
+  phone: '0000-000-0000',
+  email: 'info@yourschool.edu',
+  address: 'School Campus Address',
+  facebookUrl: 'https://facebook.com',
+  
+  // System Preferences
+  academicYear: '2025-2026',
+  academicYearStatus: 'open',
+  enabledModules: {
+    studentManagement: true,
+    personnelManagement: true,
+    sections: true,
+    calendar: true,
+    teacherTools: true
+  },
+  teacherToolVisibilities: {
+    'submission-tracker': true,
+    'teacher-attendance': true,
+    'teaching-load': true,
+    'e-filers': true,
+    'attendance-tracker': true,
+    'academic-records': true,
+    'inventory-tracker': true,
+    'enrolment-lister': true
+  },
+  enableFileUpload: true,
+  
+  // Appearance Settings
+  primaryColor: '#2563eb',
+  theme: 'light',
+  fontSize: 'compact',
+  logoPosition: 'left',
+  heroBackground: '', // Base64 or URL
 
+  // Security Settings
+  registrationCode: 'SETUP-1234'
+};
+
+export const SettingsProvider = ({ children }) => {
   const [settings, setSettings] = useState(() => {
     const savedSettings = localStorage.getItem('schoolSettings');
     if (!savedSettings) return defaultSettings;
     
     try {
       const parsed = JSON.parse(savedSettings);
-      // Deep merge basic level
       return {
         ...defaultSettings,
         ...parsed,
         enabledModules: {
           ...defaultSettings.enabledModules,
           ...(parsed.enabledModules || {})
+        },
+        teacherToolVisibilities: {
+          ...defaultSettings.teacherToolVisibilities,
+          ...(parsed.teacherToolVisibilities || {})
         }
       };
     } catch (e) {
@@ -61,22 +85,92 @@ export const SettingsProvider = ({ children }) => {
     }
   });
 
-  const updateSettings = (newSettings) => {
+  const [sessionAcademicYear, setSessionAcademicYearState] = useState(() => {
+    return localStorage.getItem('sessionAcademicYear') || '';
+  });
+
+  // Sync with Firestore
+  useEffect(() => {
+    let currentSettings = { ...defaultSettings };
+
+    const unsubGen = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        currentSettings = {
+          ...currentSettings,
+          ...data,
+          enabledModules: {
+            ...defaultSettings.enabledModules,
+            ...(data.enabledModules || {})
+          },
+          teacherToolVisibilities: {
+            ...defaultSettings.teacherToolVisibilities,
+            ...(data.teacherToolVisibilities || {})
+          }
+        };
+        setSettings({ ...currentSettings });
+        localStorage.setItem('schoolSettings', JSON.stringify(currentSettings));
+        
+        // Initialize sessionAcademicYear if it's empty
+        if (!localStorage.getItem('sessionAcademicYear') && currentSettings.academicYear) {
+          setSessionAcademicYearState(currentSettings.academicYear);
+          localStorage.setItem('sessionAcademicYear', currentSettings.academicYear);
+        }
+
+        document.documentElement.style.setProperty('--primary-blue', currentSettings.primaryColor);
+        document.body.className = currentSettings.theme;
+        document.documentElement.style.fontSize = FONT_SIZE_MAP[currentSettings.fontSize || 'compact'] || '87.5%';
+      }
+    });
+
+    const unsubHero = onSnapshot(doc(db, 'settings', 'heroImages'), (docSnap) => {
+      if (docSnap.exists()) {
+        currentSettings.heroImages = docSnap.data().images || [];
+        setSettings({ ...currentSettings });
+        localStorage.setItem('schoolSettings', JSON.stringify(currentSettings));
+      }
+    });
+
+    const unsubGal = onSnapshot(doc(db, 'settings', 'featuredGallery'), (docSnap) => {
+      if (docSnap.exists()) {
+        currentSettings.featuredGallery = docSnap.data().images || [];
+        setSettings({ ...currentSettings });
+        localStorage.setItem('schoolSettings', JSON.stringify(currentSettings));
+      }
+    });
+
+    return () => {
+      unsubGen();
+      unsubHero();
+      unsubGal();
+    };
+  }, []);
+
+  const updateSettings = async (newSettings) => {
     try {
       const updated = { ...settings, ...newSettings };
-      localStorage.setItem('schoolSettings', JSON.stringify(updated));
-      setSettings(updated);
       
-      // Apply appearance settings immediately
-      if (newSettings.primaryColor) {
-        document.documentElement.style.setProperty('--primary-blue', newSettings.primaryColor);
+      // Optimistic UI update
+      setSettings(updated);
+      localStorage.setItem('schoolSettings', JSON.stringify(updated));
+      
+      if (updated.primaryColor) {
+        document.documentElement.style.setProperty('--primary-blue', updated.primaryColor);
       }
-      if (newSettings.theme) {
-        document.body.className = newSettings.theme;
+      if (updated.theme) {
+        document.body.className = updated.theme;
       }
-      if (newSettings.fontSize) {
-        document.documentElement.style.fontSize = FONT_SIZE_MAP[newSettings.fontSize] || '87.5%';
+      if (updated.fontSize) {
+        document.documentElement.style.fontSize = FONT_SIZE_MAP[updated.fontSize] || '87.5%';
       }
+
+      // Save to Firestore by splitting arrays
+      const { heroImages, featuredGallery, ...generalSettings } = updated;
+      
+      await setDoc(doc(db, 'settings', 'general'), generalSettings);
+      await setDoc(doc(db, 'settings', 'heroImages'), { images: heroImages || [] });
+      await setDoc(doc(db, 'settings', 'featuredGallery'), { images: featuredGallery || [] });
+      
       return true;
     } catch (error) {
       console.error("Error saving settings:", error);
@@ -90,14 +184,28 @@ export const SettingsProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    // Apply initial settings
+    // Apply initial settings (from localStorage immediately to prevent flicker)
     document.documentElement.style.setProperty('--primary-blue', settings.primaryColor);
     document.body.className = settings.theme;
     document.documentElement.style.fontSize = FONT_SIZE_MAP[settings.fontSize || 'compact'] || '87.5%';
   }, []);
 
+  const setSessionAcademicYear = (year) => {
+    setSessionAcademicYearState(year);
+    localStorage.setItem('sessionAcademicYear', year);
+  };
+
+  const currentViewYear = sessionAcademicYear || settings.academicYear;
+  const isReadOnly = (currentViewYear !== settings.academicYear) || (settings.academicYearStatus === 'locked');
+
   return (
-    <SettingsContext.Provider value={{ settings, updateSettings }}>
+    <SettingsContext.Provider value={{ 
+      settings, 
+      updateSettings, 
+      sessionAcademicYear: currentViewYear, 
+      setSessionAcademicYear,
+      isReadOnly 
+    }}>
       {children}
     </SettingsContext.Provider>
   );

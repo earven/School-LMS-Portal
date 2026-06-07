@@ -1,0 +1,80 @@
+.privacy-page-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-main, #111827);
+}
+
+.privacy-header {
+  margin-bottom: 2.5rem;
+  border-bottom: 2px solid var(--border-color, #e5e7eb);
+  padding-bottom: 1.5rem;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--primary, #4e73df);
+  text-decoration: none;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
+  transition: color 0.2s;
+}
+
+.back-link:hover {
+  color: #2e59d9;
+}
+
+.privacy-header h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  letter-spacing: -0.025em;
+  color: var(--text-main, #111827);
+}
+
+.privacy-header p {
+  color: var(--text-muted, #6b7280);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.privacy-content {
+  line-height: 1.6;
+}
+
+.privacy-section {
+  margin-bottom: 2.5rem;
+}
+
+.privacy-section h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: var(--primary, #4e73df);
+}
+
+.privacy-section p {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: var(--text-secondary, #374151);
+}
+
+.privacy-section ul {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+  color: var(--text-secondary, #374151);
+}
+
+.privacy-section li {
+  margin-bottom: 0.5rem;
+}
+
+.privacy-section strong {
+  color: var(--text-main, #111827);
+  font-weight: 600;
+}

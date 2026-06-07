@@ -82,3 +82,18 @@ body.dark .tool-info h3 {
 body.dark .tool-info p {
   color: #bbbbbb;
 }
+
+.tool-card.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-top-color: #95a5a6 !important;
+}
+
+.tool-card.disabled:hover {
+  box-shadow: 0 1px 5px rgba(0,0,0,0.03);
+}
+
+.tool-card.disabled .tool-footer {
+  color: var(--gray-500) !important;
+}
+

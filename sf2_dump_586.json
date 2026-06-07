@@ -1,0 +1,15 @@
+{
+  "name": "replace_file_content",
+  "args": {
+    "AllowMultiple": "false",
+    "Description": "\"Update schoolYear in handleDownloadOfficialSF2\"",
+    "EndLine": "345",
+    "Instruction": "\"Update settings.academicYear to use sessionAcademicYear\"",
+    "ReplacementContent": "\"        gradeLevel: activeSection.gradeLevel,\\n        schoolName: settings.schoolName || 'School',\\n        schoolYear: sessionAcademicYear || settings.academicYear || '',\\n        selectedMonth,\"",
+    "StartLine": "335",
+    "TargetContent": "\"        gradeLevel: activeSection.gradeLevel,\\n        schoolName: settings.schoolName || 'School',\\n        schoolYear: settings.academicYear || '',\\n        selectedMonth,\"",
+    "TargetFile": "\"d:/coding_files/School-LMS-Portal/src/pages/TeacherTools/AttendanceTracker.jsx\"",
+    "toolAction": "\"Updating schoolYear for SF2\"",
+    "toolSummary": "\"Update SF2 schoolYear\""
+  }
+}

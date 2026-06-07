@@ -11,7 +11,7 @@ const SectionsPage = () => {
   const navigate = useNavigate();
   const { sections, loading, error, addSection, updateSection, deleteSection } = useSections();
   const { personnel } = usePersonnel();
-  const { students, addStudent, addBulkStudents, updateStudent, deleteStudent } = useStudents();
+  const { students, addStudent, addBulkStudents, deleteStudent } = useStudents();
   const [searchParams] = useSearchParams();
   
   // ... rest of state ...
@@ -21,6 +21,7 @@ const SectionsPage = () => {
   useEffect(() => {
     const view = searchParams.get('view');
     if (view && ['overview', 'JHS', 'SHS'].includes(view)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setViewMode(view);
     }
   }, [searchParams]);
@@ -252,6 +253,12 @@ const SectionsPage = () => {
     const file = event.target.files[0];
     if (!file) return;
 
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File size exceeds 5MB limit. Please upload a smaller CSV file.");
+      event.target.value = null;
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       const text = e.target.result;
@@ -364,7 +371,7 @@ const SectionsPage = () => {
       if (studentsToBulkAdd.length > 0) {
         try {
           await addBulkStudents(studentsToBulkAdd);
-          setShowBulkEnroll(false);
+          // setShowBulkEnroll(false);
           
           let message = `Successfully enrolled ${studentsToBulkAdd.length} new learners to ${selectedSection.name}.`;
           if (duplicateCount > 0) message += `\n\n⚠️ ${duplicateCount} learners were SKIPPED because their LRN is already registered in the system.`;
@@ -552,74 +559,84 @@ const SectionsPage = () => {
             </div>
           </div>
         ) : (
-          <div className="sections-grid">
-            {displayedSections.map((section, index) => {
-              const sectionStudents = students.filter(s => s.sectionId === section?.id);
-              const maleCount = sectionStudents.filter(s => s.gender === 'Male').length;
-              const femaleCount = sectionStudents.filter(s => s.gender === 'Female').length;
-              const fourPsCount = sectionStudents.filter(s => s.is4Ps).length;
+          <div className="sections-grouped-container">
+            {(() => {
+              const sortedGrades = Array.from(new Set(displayedSections.map(s => s?.gradeLevel || 'Unknown')))
+                .sort((a, b) => {
+                  const numA = parseInt(a.replace(/\D/g, ''), 10) || 99;
+                  const numB = parseInt(b.replace(/\D/g, ''), 10) || 99;
+                  return numA - numB;
+                });
 
-              return (
-                <div 
-                  key={section?.id || index} 
-                  className={`section-tile ${selectedSection?.id === section?.id ? 'selected' : ''}`}
-                  onClick={() => {
-                    if (section) {
-                      navigate(`/students?sectionId=${section.id}`);
-                    }
-                  }}
-                >
-                  <div className="tile-header">
-                    <span className={`status-dot ${section?.isActive ? 'active' : 'inactive'}`}></span>
-                    <span className="grade-badge">{section?.gradeLevel || 'N/A'}</span>
+              if (sortedGrades.length === 0) {
+                return (
+                  <div className="no-sections" style={{ gridColumn: '1 / -1' }}>
+                    <p>No sections found for this level.</p>
                   </div>
-                  <div className="tile-content">
-                    <h3 className="section-name">{section?.name || 'Unnamed Section'}</h3>
-                    <div className="section-info">
-                      <div className="info-item">
-                        <span className="info-label">Adviser:</span>
-                        <span className="info-value">{section?.adviserName || 'No Adviser'}</span>
-                      </div>
-                      <div className="info-item">
-                        <span className="info-label">Total Students:</span>
-                        <span className="info-value">{sectionStudents.length}</span>
-                      </div>
-                      <div className="info-item">
-                        <span className="info-label">Male / Female:</span>
-                        <span className="info-value">{maleCount} / {femaleCount}</span>
-                      </div>
-                      <div className="info-item">
-                        <span className="info-label">4Ps Beneficiaries:</span>
-                        <span className="info-value">{fourPsCount}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="tile-footer">
-                    <span className="view-details">View Students →</span>
-                    {isAdmin && (
-                      <button 
-                        className="manage-tile-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedSection(section);
-                          setEditSectionForm(section);
-                          setIsEditing(true);
-                          setIsAdding(false);
-                          setActiveTab('details');
-                        }}
-                      >
-                        ⚙️ Manage
-                      </button>
-                    )}
+                );
+              }
+
+              return sortedGrades.map((gradeLevel) => (
+                <div key={gradeLevel} className="grade-level-group">
+                  <h3 className="grade-level-header">{gradeLevel}</h3>
+                  <div className="sections-list">
+                    {displayedSections.filter(s => (s?.gradeLevel || 'Unknown') === gradeLevel).map((section, index) => {
+                      const sectionStudents = students.filter(s => s.sectionId === section?.id);
+                      const maleCount = sectionStudents.filter(s => s.gender === 'Male').length;
+                      const femaleCount = sectionStudents.filter(s => s.gender === 'Female').length;
+                      const fourPsCount = sectionStudents.filter(s => s.is4Ps).length;
+
+                      return (
+                        <div 
+                          key={section?.id || index} 
+                          className={`section-list-item ${selectedSection?.id === section?.id ? 'selected' : ''}`}
+                          onClick={() => {
+                            if (section) {
+                              navigate(`/students?sectionId=${section.id}`);
+                            }
+                          }}
+                        >
+                          <div className="list-item-status">
+                            <span className={`status-dot ${section?.isActive ? 'active' : 'inactive'}`}></span>
+                          </div>
+                          
+                          <div className="list-item-main">
+                            <h4 className="section-name-compact">{section?.name || 'Unnamed Section'}</h4>
+                            <span className="adviser-name-compact">{section?.adviserName || 'No Adviser'}</span>
+                          </div>
+                          
+                          <div className="list-item-stats">
+                            <span className="compact-stat">👥 {sectionStudents.length}</span>
+                            <span className="compact-stat">M: {maleCount} | F: {femaleCount}</span>
+                            {fourPsCount > 0 && <span className="compact-stat highlight-4ps">4Ps: {fourPsCount}</span>}
+                          </div>
+                          
+                          <div className="list-item-actions">
+                            {isAdmin && (
+                              <button 
+                                className="manage-icon-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSection(section);
+                                  setEditSectionForm(section);
+                                  setIsEditing(true);
+                                  setIsAdding(false);
+                                  setActiveTab('details');
+                                }}
+                                title="Manage Section"
+                              >
+                                ⚙️
+                              </button>
+                            )}
+                            <span className="view-arrow">→</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              );
-            })}
-            {displayedSections.length === 0 && (
-              <div className="no-sections">
-                <p>No sections found for this level.</p>
-              </div>
-            )}
+              ));
+            })()}
           </div>
         )}
 

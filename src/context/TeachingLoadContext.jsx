@@ -13,28 +13,31 @@ import {
   where,
   serverTimestamp,
   getDocs,
+  writeBatch,
 } from 'firebase/firestore';
 
 const TeachingLoadContext = createContext(null);
 
 export const TeachingLoadProvider = ({ children }) => {
   const { user, loading: authLoading } = useAuth();
-  const { settings } = useSettings();
+  const { settings, sessionAcademicYear } = useSettings();
   const [loads, setLoads] = useState([]);
   const [breaks, setBreaks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const academicYear = settings?.academicYear || '';
+  const academicYear = sessionAcademicYear || settings?.academicYear || '';
 
   useEffect(() => {
-    if (authLoading || !user || !academicYear) {
+    if (authLoading || !user || !user.role || user.role === 'pending' || !academicYear) {
       setLoads([]);
+      setError(null);
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setError(null);
     const q = query(
       collection(db, 'teaching_loads'),
       where('academicYear', '==', academicYear)
@@ -45,6 +48,7 @@ export const TeachingLoadProvider = ({ children }) => {
       (snapshot) => {
         const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
         setLoads(data);
+        setError(null);
         setLoading(false);
       },
       (err) => {
@@ -136,6 +140,25 @@ export const TeachingLoadProvider = ({ children }) => {
     }
   };
 
+  const batchAddLoads = async (loadsArray) => {
+    try {
+      const batch = writeBatch(db);
+      loadsArray.forEach(load => {
+        const docRef = doc(collection(db, 'teaching_loads'));
+        batch.set(docRef, {
+          ...load,
+          academicYear,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
+      return { success: true };
+    } catch (e) {
+      console.error('Error batch adding loads:', e);
+      return { success: false, error: e.message };
+    }
+  };
 
   const updateLoad = async (loadId, loadData) => {
     try {
@@ -195,6 +218,7 @@ export const TeachingLoadProvider = ({ children }) => {
         error,
         academicYear,
         addLoad,
+        batchAddLoads,
         updateLoad,
         deleteLoad,
         copyLoads,

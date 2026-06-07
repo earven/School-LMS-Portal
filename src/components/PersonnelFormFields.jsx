@@ -9,6 +9,7 @@ const PersonnelFormFields = ({
   customFieldsConfig,
   sections,
   showAuthFields = false,
+  isAdmin = false,
 }) => {
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -109,7 +110,7 @@ const PersonnelFormFields = ({
 
       <div className="form-group">
         <label>Role</label>
-        <select name="role" value={formData.role || 'teacher'} onChange={handleChange}>
+        <select name="role" value={formData.role || 'teacher'} onChange={handleChange} disabled={!isAdmin}>
           <option value="system_admin">System Admin</option>
           <option value="admin">Admin</option>
           <option value="teacher">Teacher</option>
@@ -159,6 +160,7 @@ const PersonnelFormFields = ({
                 type="checkbox"
                 checked={(formData.assignedSections || []).includes(section.id)}
                 onChange={() => toggleArrayItem('assignedSections', section.id)}
+                disabled={!isAdmin}
               />
               <span>
                 {section?.name || 'Unnamed'} ({section?.gradeLevel || 'N/A'})
@@ -211,6 +213,22 @@ const PersonnelFormFields = ({
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="admin-permissions-section full-width" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--gray-200)' }}>
+          <h3 style={{ margin: '0 0 0.75rem', fontSize: '1.05rem', color: 'var(--primary-blue)' }}>🔐 Permissions & Access Control</h3>
+          <div className="admin-permissions-grid">
+            <label className="section-checkbox-item">
+              <input
+                type="checkbox"
+                checked={!!formData.isEnrolmentCoordinator}
+                onChange={(e) => onChange({ ...formData, isEnrolmentCoordinator: e.target.checked })}
+              />
+              <span style={{ fontWeight: 600 }}>Designate as Enrolment Coordinator (Grants access to Enrolment Lister)</span>
+            </label>
           </div>
         </div>
       )}

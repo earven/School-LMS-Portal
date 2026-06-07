@@ -1,0 +1,513 @@
+.teacher-attendance-page {
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.teacher-attendance-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.teacher-attendance-page .page-header h1 {
+  font-size: 1.8rem;
+  color: var(--color-heading);
+  margin: 0 0 0.4rem 0;
+  font-weight: 800;
+}
+
+.teacher-attendance-page .page-header p {
+  color: var(--color-text-light);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+/* Tabs styling */
+.attendance-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.attendance-tabs .tab-btn {
+  background: transparent;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-light);
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.attendance-tabs .tab-btn:hover {
+  background: var(--color-background-hover);
+  color: var(--color-heading);
+}
+
+.attendance-tabs .tab-btn.active {
+  background: var(--light-blue);
+  color: var(--primary-blue);
+}
+
+/* Config Header Card */
+.attendance-config-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.config-form-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.config-form-group label {
+  font-weight: 600;
+  color: var(--color-heading);
+  font-size: 0.9rem;
+}
+
+.config-form-group input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--color-input-bg);
+  color: var(--color-input-text);
+  outline: none;
+}
+
+.personal-stats {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.stat-badge.present {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.stat-badge.absent {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.stat-badge.tardy {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.stat-badge.total {
+  background-color: var(--color-background-mute);
+  color: var(--color-text);
+}
+
+/* Table / Daily View Styling */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.attendance-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.attendance-table th,
+.attendance-table td {
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.9rem;
+}
+
+.attendance-table th {
+  background: var(--color-background-mute);
+  color: var(--color-heading);
+  font-weight: 700;
+}
+
+.attendance-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Status Button Groups */
+.status-button-group {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.status-btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.status-btn.present:hover,
+.status-btn.present.active {
+  background-color: #10b981;
+  color: white;
+  border-color: #10b981;
+}
+
+.status-btn.absent:hover,
+.status-btn.absent.active {
+  background-color: #ef4444;
+  color: white;
+  border-color: #ef4444;
+}
+
+.status-btn.tardy:hover,
+.status-btn.tardy.active {
+  background-color: #f59e0b;
+  color: white;
+  border-color: #f59e0b;
+}
+
+.remark-input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--color-input-bg);
+  color: var(--color-input-text);
+  outline: none;
+}
+
+.status-badge {
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-badge.present {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.absent {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.status-badge.tardy {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+/* Monthly Summary Grid Styling */
+.info-pill {
+  font-size: 0.8rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+.grid-wrapper {
+  max-height: 600px;
+  overflow: auto;
+}
+
+.monthly-grid-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.monthly-grid-table th,
+.monthly-grid-table td {
+  padding: 0.55rem 0.75rem;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.monthly-grid-table th {
+  background: var(--color-background-mute);
+  color: var(--color-heading);
+  font-weight: 700;
+  top: 0;
+  position: sticky;
+  z-index: 10;
+}
+
+.monthly-grid-table th.col-day {
+  min-width: 32px;
+}
+
+.monthly-grid-table th.col-day.weekend,
+.monthly-grid-table td.grid-cell.disabled {
+  background: var(--color-background-soft);
+  opacity: 0.6;
+}
+
+.monthly-grid-table th.col-day.holiday {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Sticky Column definitions */
+.monthly-grid-table .sticky-col {
+  position: sticky;
+  left: 0;
+  background: var(--color-background);
+  z-index: 5;
+  text-align: left;
+}
+
+.monthly-grid-table th.sticky-col {
+  z-index: 15;
+  background: var(--color-background-mute);
+}
+
+.monthly-grid-table .col-employee-id {
+  left: 0;
+  min-width: 110px;
+}
+
+.monthly-grid-table .col-name {
+  left: 110px;
+  min-width: 180px;
+  border-right: 2px solid var(--color-border);
+}
+
+.monthly-grid-table th.col-name {
+  border-right: 2px solid var(--color-border);
+}
+
+/* Grid cell active highlights */
+.grid-cell {
+  cursor: pointer;
+  min-height: 28px;
+  font-weight: bold;
+  user-select: none;
+  transition: background-color 0.15s;
+}
+
+.grid-cell.readonly {
+  cursor: default;
+}
+
+.grid-cell:hover:not(.disabled):not(.readonly) {
+  background-color: var(--color-background-hover);
+}
+
+.grid-cell.absent {
+  background-color: #fca5a5 !important;
+  color: #7f1d1d !important;
+}
+
+.grid-cell.tardy {
+  background-color: #fcd34d !important;
+  color: #78350f !important;
+}
+
+/* Dark Mode Adjustments */
+body.dark .stat-badge.present {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+body.dark .stat-badge.absent {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+body.dark .stat-badge.tardy {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+body.dark .status-badge.present {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+body.dark .status-badge.absent {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+body.dark .status-badge.tardy {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+body.dark .info-pill {
+  background: rgba(37, 99, 235, 0.15);
+  color: #60a5fa;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+body.dark .grid-cell.absent {
+  background-color: #991b1b !important;
+  color: #fee2e2 !important;
+}
+
+body.dark .grid-cell.tardy {
+  background-color: #92400e !important;
+  color: #fef3c7 !important;
+}
+
+body.dark .monthly-grid-table .sticky-col {
+  background: #111827;
+}
+
+body.dark .monthly-grid-table th.sticky-col {
+  background: var(--color-background-mute);
+}
+
+/* Print Styles - Auto Landscape & Layout scaling */
+@media print {
+  @page {
+    size: landscape;
+    margin: 0.4cm;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide headers, tabs, configs, buttons, and navigation sidebars */
+  header,
+  .sidebar,
+  .nav-container,
+  .page-header,
+  .attendance-tabs,
+  .attendance-config-card,
+  .no-print,
+  button,
+  .info-pill {
+    display: none !important;
+  }
+
+  .teacher-attendance-page {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  .grid-wrapper {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .monthly-grid-table {
+    width: 100% !important;
+    border: 1px solid #000 !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+  }
+
+  .monthly-grid-table th,
+  .monthly-grid-table td {
+    border: 1px solid #000 !important;
+    font-size: 0.5rem !important;
+    padding: 2px 1px !important;
+    color: #000 !important;
+    text-align: center !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .monthly-grid-table th {
+    background-color: #f3f4f6 !important;
+    color: #000 !important;
+  }
+
+  /* Strict column widths for print layout flow */
+  .monthly-grid-table th.col-employee-id,
+  .monthly-grid-table td.col-employee-id {
+    width: 60px !important;
+    min-width: 60px !important;
+  }
+
+  .monthly-grid-table th.col-name,
+  .monthly-grid-table td.col-name {
+    width: 110px !important;
+    min-width: 110px !important;
+    text-align: left !important;
+  }
+
+  .monthly-grid-table th.col-day,
+  .monthly-grid-table td.grid-cell {
+    width: 18px !important;
+    min-width: 18px !important;
+  }
+
+  .monthly-grid-table th.col-total,
+  .monthly-grid-table td.col-total {
+    width: 25px !important;
+    min-width: 25px !important;
+  }
+
+  /* Reset sticky columns for standard print layout flow */
+  .monthly-grid-table .sticky-col {
+    position: static !important;
+    background: transparent !important;
+    border-right: 1px solid #000 !important;
+  }
+
+  /* Keep colors visible in print */
+  .grid-cell.absent {
+    background-color: #fca5a5 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .grid-cell.tardy {
+    background-color: #fcd34d !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

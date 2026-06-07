@@ -2,8 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { buildFullName } from '../utils/personnelName';
 import { useStudents } from '../context/StudentContext';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useSettings } from '../context/SettingsContext';
 import { useSections } from '../context/SectionContext';
+import StudentPromotionModal from '../components/StudentPromotionModal';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import './StudentsPage.css';
 
 const StudentsPage = () => {
@@ -24,6 +28,23 @@ const StudentsPage = () => {
       setFilterSection(sectionId);
     }
   }, [searchParams]);
+  // Batch Promotion state
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [showPromotionModal, setShowPromotionModal] = useState(false);
+
+  // Enrolment Masterlist integration state
+  const [activeTab, setActiveTab] = useState('masterlist');
+  const [enrolmentStudents, setEnrolmentStudents] = useState([]);
+  const [selectedEnrolmentIds, setSelectedEnrolmentIds] = useState([]);
+  const [targetSectionId, setTargetSectionId] = useState('');
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'enrolment_students'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), lrn: doc.id }));
+      setEnrolmentStudents(data);
+    });
+    return () => unsub();
+  }, []);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -478,6 +499,9 @@ const StudentsPage = () => {
                 setIsAdding(true);
                 setSelectedStudent(null);
                 setShowBulkUpload(false);
+                setActiveTab('masterlist');
+                setSelectedEnrolmentIds([]);
+                setTargetSectionId(filterSection !== 'All' ? filterSection : (assignedSections[0]?.id || ''));
                 
                 if (filterSection !== 'All') {
                   const matchedSection = sections.find(s => s.id === filterSection);
@@ -757,108 +781,283 @@ const StudentsPage = () => {
         )}
 
         {isAdding && (
-          <div className="student-detail-panel">
-            <div className="detail-header">
-              <h2>Add New Learner</h2>
-              <button className="close-btn" onClick={() => setIsAdding(false)}>×</button>
-            </div>
+          <div className="student-detail-overlay">
+            <div className="student-detail-panel" style={{ maxWidth: activeTab === 'masterlist' ? '800px' : '500px' }}>
+              <div className="detail-header">
+                <h2>Add New Learner</h2>
+                <button className="close-btn" onClick={() => setIsAdding(false)}>×</button>
+              </div>
+
+              <div className="tabs-header" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 1.5rem', marginTop: '0.5rem' }}>
+                <button 
+                  className={`tab-btn ${activeTab === 'masterlist' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('masterlist')}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeTab === 'masterlist' ? '3px solid var(--primary-blue)' : '3px solid transparent',
+                    color: activeTab === 'masterlist' ? 'var(--primary-blue)' : 'var(--gray-500)',
+                    fontWeight: activeTab === 'masterlist' ? '600' : '500',
+                    cursor: 'pointer',
+                    fontSize: '0.95rem'
+                  }}
+                >
+                  Pick from Enrolment Masterlist
+                </button>
+                <button 
+                  className={`tab-btn ${activeTab === 'manual' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('manual')}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeTab === 'manual' ? '3px solid var(--primary-blue)' : '3px solid transparent',
+                    color: activeTab === 'manual' ? 'var(--primary-blue)' : 'var(--gray-500)',
+                    fontWeight: activeTab === 'manual' ? '600' : '500',
+                    cursor: 'pointer',
+                    fontSize: '0.95rem'
+                  }}
+                >
+                  Manual Entry
+                </button>
+              </div>
             
-            <div className="detail-body">
-              <div className="profile-edit">
-                <div className="form-group">
-                  <label>LRN</label>
-                  <input 
-                    type="text" 
-                    name="id" 
-                    value={newStudentForm.id} 
-                    onChange={handleNewStudentChange} 
-                    placeholder="12-digit number" 
-                    maxLength={12}
-                  />
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Last Name</label>
-                    <input type="text" name="lastName" value={newStudentForm.lastName} onChange={handleNewStudentChange} placeholder="Dela Cruz" />
+              <div className="detail-body">
+                {activeTab === 'manual' ? (
+                  <div className="profile-edit">
+                    <div className="form-group">
+                      <label>LRN</label>
+                      <input 
+                        type="text" 
+                        name="id" 
+                        value={newStudentForm.id} 
+                        onChange={handleNewStudentChange} 
+                        placeholder="12-digit number" 
+                        maxLength={12}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Last Name</label>
+                        <input type="text" name="lastName" value={newStudentForm.lastName} onChange={handleNewStudentChange} placeholder="Dela Cruz" />
+                      </div>
+                      <div className="form-group">
+                        <label>First Name</label>
+                        <input type="text" name="firstName" value={newStudentForm.firstName} onChange={handleNewStudentChange} placeholder="Juan" />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Middle Name</label>
+                        <input type="text" name="middleName" value={newStudentForm.middleName} onChange={handleNewStudentChange} />
+                      </div>
+                      <div className="form-group">
+                        <label>Extension</label>
+                        <input type="text" name="extension" value={newStudentForm.extension} onChange={handleNewStudentChange} placeholder="Jr., III" />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Gender</label>
+                      <select name="gender" value={newStudentForm.gender} onChange={handleNewStudentChange}>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Address</label>
+                      <textarea name="address" value={newStudentForm.address} onChange={handleNewStudentChange} placeholder="Enter address" />
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Grade Level</label>
+                        <select 
+                          name="gradeLevel" 
+                          value={newStudentForm.gradeLevel} 
+                          onChange={handleNewStudentChange}
+                          disabled={filterSection !== 'All'}
+                        >
+                          <option value="Grade 7">Grade 7</option>
+                          <option value="Grade 8">Grade 8</option>
+                          <option value="Grade 9">Grade 9</option>
+                          <option value="Grade 10">Grade 10</option>
+                          <option value="Grade 11">Grade 11</option>
+                          <option value="Grade 12">Grade 12</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Section</label>
+                        <select 
+                          name="sectionId" 
+                          value={newStudentForm.sectionId} 
+                          onChange={handleNewStudentChange}
+                          disabled={filterSection !== 'All'}
+                        >
+                          <option value="">Select Section</option>
+                          {assignedSections.map(section => (
+                            <option key={section.id} value={section.id}>{section.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Nutritional Status</label>
+                      <select name="nutritionalStatus" value={newStudentForm.nutritionalStatus} onChange={handleNewStudentChange}>
+                        <option value="Normal">Normal</option>
+                        <option value="Underweight">Underweight</option>
+                        <option value="Overweight">Overweight</option>
+                        <option value="Obese">Obese</option>
+                        <option value="Severely Underweight">Severely Underweight</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="checkbox-label">
+                        <input type="checkbox" name="is4Ps" checked={newStudentForm.is4Ps} onChange={handleNewStudentChange} />
+                        4Ps Recipient
+                      </label>
+                    </div>
+                    <div className="edit-actions">
+                      <button className="save-btn" onClick={handleAddNew}>Add Learner</button>
+                      <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>First Name</label>
-                    <input type="text" name="firstName" value={newStudentForm.firstName} onChange={handleNewStudentChange} placeholder="Juan" />
+                ) : (
+                  <div className="enrolment-masterlist-view">
+                    <div className="form-group" style={{ marginBottom: '1rem' }}>
+                      <label style={{ fontWeight: '600', marginBottom: '0.5rem', display: 'block' }}>Target Section</label>
+                      <select 
+                        value={targetSectionId} 
+                        onChange={(e) => {
+                          setTargetSectionId(e.target.value);
+                          setSelectedEnrolmentIds([]);
+                        }}
+                        style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1px solid #ccc' }}
+                      >
+                        <option value="">Select Target Section</option>
+                        {assignedSections.map(section => (
+                          <option key={section.id} value={section.id}>{section.name} ({section.gradeLevel})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {targetSectionId ? (() => {
+                      const selectedSection = sections.find(s => s.id === targetSectionId);
+                      const filteredEnrollees = enrolmentStudents.filter(es => {
+                        // Normalize grade level string matching
+                        const sectionGrade = selectedSection?.gradeLevel.replace(/\D/g, '');
+                        const enrolleeGrade = (es.gradeLevel || '').replace(/\D/g, '');
+                        return sectionGrade === enrolleeGrade && !students.some(s => s.id === es.lrn);
+                      });
+
+                      if (filteredEnrollees.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+                            <p style={{ color: '#666', fontSize: '1.1rem' }}>No unassigned enrollees found for {selectedSection?.gradeLevel}.</p>
+                            <p style={{ color: '#999', fontSize: '0.9rem', marginTop: '0.5rem' }}>They might have been assigned to other sections.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <>
+                          <div className="table-wrapper" style={{ marginTop: '1rem', maxHeight: '400px', overflowY: 'auto' }}>
+                            <table className="students-table" style={{ borderTop: '1px solid #e2e8f0' }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ width: '40px', textAlign: 'center' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={selectedEnrolmentIds.length === filteredEnrollees.length && filteredEnrollees.length > 0}
+                                      onChange={(e) => {
+                                        if (e.target.checked) setSelectedEnrolmentIds(filteredEnrollees.map(es => es.lrn));
+                                        else setSelectedEnrolmentIds([]);
+                                      }}
+                                    />
+                                  </th>
+                                  <th>LRN</th>
+                                  <th>Name</th>
+                                  <th>Gender</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredEnrollees.map(es => (
+                                  <tr key={es.lrn} onClick={() => {
+                                    if (selectedEnrolmentIds.includes(es.lrn)) setSelectedEnrolmentIds(prev => prev.filter(id => id !== es.lrn));
+                                    else setSelectedEnrolmentIds(prev => [...prev, es.lrn]);
+                                  }}>
+                                    <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                      <input 
+                                        type="checkbox"
+                                        checked={selectedEnrolmentIds.includes(es.lrn)}
+                                        onChange={(e) => {
+                                          if (e.target.checked) setSelectedEnrolmentIds(prev => [...prev, es.lrn]);
+                                          else setSelectedEnrolmentIds(prev => prev.filter(id => id !== es.lrn));
+                                        }}
+                                      />
+                                    </td>
+                                    <td>{es.lrn}</td>
+                                    <td style={{ fontWeight: '500' }}>{formatName(es.lastName)}, {formatName(es.firstName)} {formatName(es.middleName)}</td>
+                                    <td>
+                                      <span className={`gender-badge ${es.gender?.toLowerCase() || 'male'}`}>
+                                        {es.gender || 'Male'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="edit-actions" style={{ marginTop: '1.5rem' }}>
+                            <button 
+                              className="save-btn" 
+                              style={{ 
+                                opacity: selectedEnrolmentIds.length === 0 ? 0.6 : 1,
+                                cursor: selectedEnrolmentIds.length === 0 ? 'not-allowed' : 'pointer'
+                              }}
+                              onClick={async () => {
+                                if (selectedEnrolmentIds.length === 0) return;
+                                
+                                if (window.confirm(`Enroll ${selectedEnrolmentIds.length} learners to ${selectedSection.name}?`)) {
+                                  const enrolleesToAdd = filteredEnrollees.filter(es => selectedEnrolmentIds.includes(es.lrn)).map(es => ({
+                                    id: es.lrn,
+                                    lastName: formatName(es.lastName),
+                                    firstName: formatName(es.firstName),
+                                    middleName: formatName(es.middleName),
+                                    extension: es.extName || '',
+                                    gender: es.gender || 'Male',
+                                    address: '',
+                                    gradeLevel: selectedSection.gradeLevel,
+                                    sectionId: selectedSection.id,
+                                    is4Ps: !!es.is4Ps,
+                                    nutritionalStatus: 'Normal'
+                                  }));
+                                  
+                                  try {
+                                    await addBulkStudents(enrolleesToAdd);
+                                    alert(`Successfully enrolled ${enrolleesToAdd.length} learners!`);
+                                    setSelectedEnrolmentIds([]);
+                                    setIsAdding(false);
+                                  } catch (error) {
+                                    console.error('Error bulk enrolling:', error);
+                                    alert('Failed to enroll learners.');
+                                  }
+                                }
+                              }}
+                              disabled={selectedEnrolmentIds.length === 0}
+                            >
+                              Bulk Enroll Selected ({selectedEnrolmentIds.length})
+                            </button>
+                            <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
+                          </div>
+                        </>
+                      );
+                    })() : (
+                      <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+                        <p style={{ color: '#666', fontSize: '1.1rem' }}>Please select a target section to view available enrollees.</p>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Middle Name</label>
-                    <input type="text" name="middleName" value={newStudentForm.middleName} onChange={handleNewStudentChange} />
-                  </div>
-                  <div className="form-group">
-                    <label>Extension</label>
-                    <input type="text" name="extension" value={newStudentForm.extension} onChange={handleNewStudentChange} placeholder="Jr., III" />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Gender</label>
-                  <select name="gender" value={newStudentForm.gender} onChange={handleNewStudentChange}>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Address</label>
-                  <textarea name="address" value={newStudentForm.address} onChange={handleNewStudentChange} placeholder="Enter address" />
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Grade Level</label>
-                    <select 
-                      name="gradeLevel" 
-                      value={newStudentForm.gradeLevel} 
-                      onChange={handleNewStudentChange}
-                      disabled={filterSection !== 'All'}
-                    >
-                      <option value="Grade 7">Grade 7</option>
-                      <option value="Grade 8">Grade 8</option>
-                      <option value="Grade 9">Grade 9</option>
-                      <option value="Grade 10">Grade 10</option>
-                      <option value="Grade 11">Grade 11</option>
-                      <option value="Grade 12">Grade 12</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Section</label>
-                    <select 
-                      name="sectionId" 
-                      value={newStudentForm.sectionId} 
-                      onChange={handleNewStudentChange}
-                      disabled={filterSection !== 'All'}
-                    >
-                      <option value="">Select Section</option>
-                      {assignedSections.map(section => (
-                        <option key={section.id} value={section.id}>{section.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Nutritional Status</label>
-                  <select name="nutritionalStatus" value={newStudentForm.nutritionalStatus} onChange={handleNewStudentChange}>
-                    <option value="Normal">Normal</option>
-                    <option value="Underweight">Underweight</option>
-                    <option value="Overweight">Overweight</option>
-                    <option value="Obese">Obese</option>
-                    <option value="Severely Underweight">Severely Underweight</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="checkbox-label">
-                    <input type="checkbox" name="is4Ps" checked={newStudentForm.is4Ps} onChange={handleNewStudentChange} />
-                    4Ps Recipient
-                  </label>
-                </div>
-                <div className="edit-actions">
-                  <button className="save-btn" onClick={handleAddNew}>Add Learner</button>
-                  <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
-                </div>
+                )}
               </div>
             </div>
           </div>

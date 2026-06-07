@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
+import imageCompression from 'browser-image-compression';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
   const { user, updateUserProfile } = useAuth();
+  const { settings } = useSettings();
   
   const [formData, setFormData] = useState({
     fullName: '',
@@ -30,49 +33,39 @@ const ProfilePage = () => {
     }));
   };
 
-  // Image Resizing to Base64
-  const resizeImage = (file, maxWidth = 300, maxHeight = 300) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
-            }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Compress to WebP or JPEG
-          resolve(canvas.toDataURL('image/webp', 0.8));
-        };
-        img.onerror = reject;
-        img.src = event.target.result;
+  const resizeImage = async (file, maxWidth = 300, maxHeight = 300) => {
+    try {
+      const options = {
+        maxSizeMB: 0.1, // compress to ~100KB
+        maxWidthOrHeight: Math.max(maxWidth, maxHeight),
+        useWebWorker: true,
+        fileType: 'image/webp'
       };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+      
+      const compressedFile = await imageCompression(file, options);
+      
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(compressedFile);
+        reader.onloadend = () => {
+          resolve(reader.result);
+        };
+        reader.onerror = (error) => reject(error);
+      });
+    } catch (error) {
+      console.error("Image compression error:", error);
+      throw new Error("Failed to process image. It might not be a valid image file.");
+    }
   };
 
   const handleProfilePictureUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveMessage({ type: 'error', text: 'Image size exceeds 5MB limit. Please select a smaller file.' });
+      return;
+    }
 
     if (!file.type.startsWith('image/')) {
       setSaveMessage({ type: 'error', text: 'Please select a valid image file.' });
@@ -135,13 +128,21 @@ const ProfilePage = () => {
                 )}
               </div>
               
-              <div className="profile-upload-controls">
-                <label className="upload-btn">
-                  Upload New Picture
-                  <input type="file" accept="image/*" onChange={handleProfilePictureUpload} hidden />
-                </label>
-                <p className="help-text">Recommended size: 250x250px. Max size: 2MB.</p>
-              </div>
+               {settings.enableFileUpload ? (
+                <div className="profile-upload-controls">
+                  <label className="upload-btn">
+                    Upload New Picture
+                    <input type="file" accept="image/*" onChange={handleProfilePictureUpload} hidden />
+                  </label>
+                  <p className="help-text">Recommended size: 250x250px. Max size: 2MB.</p>
+                </div>
+              ) : (
+                <div className="profile-upload-controls">
+                  <p className="help-text" style={{ color: '#ef4444', fontWeight: '500' }}>
+                    ⚠️ Image uploading is currently disabled by the system administrator.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="form-group">

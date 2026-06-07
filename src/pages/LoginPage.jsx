@@ -16,6 +16,10 @@ const LoginPage = () => {
   const { login, loginWithGoogle, resetPassword, user, loading } = useAuth();
   const { settings } = useSettings();
   const hasSchoolLogo = Boolean(settings.schoolLogo);
+  const hasHeroBg = Boolean(settings.heroBackground);
+  const heroBgStyle = hasHeroBg 
+    ? { backgroundImage: `url(${settings.heroBackground})`, backgroundSize: 'cover', backgroundPosition: 'center' } 
+    : {};
 
   useEffect(() => {
     if (!loading && user) {
@@ -85,7 +89,7 @@ const LoginPage = () => {
 
   return (
     <div className="login-wrapper">
-      <div className="login-visual-panel">
+      <div className="login-visual-panel" style={heroBgStyle}>
         <div className="visual-content">
           <div className="visual-logo-box" aria-label="School logo">
             {hasSchoolLogo ? (
@@ -208,7 +212,7 @@ const LoginPage = () => {
           </form>
 
           <div className="form-footer">
-            <p>© {new Date().getFullYear()} {settings.schoolName || 'Vinapor NHS'}. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} {settings.schoolName || 'School Portal'}. All rights reserved.</p>
           </div>
         </div>
       </div>

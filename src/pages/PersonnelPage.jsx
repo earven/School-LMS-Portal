@@ -43,7 +43,7 @@ const PersonnelPage = () => {
 
   const isAdmin = ['admin', 'system_admin'].includes(user?.role);
   // Find current authenticated user's personnel record from the fetched personnel list
-  const currentUserPersonnel = personnel.find(p => p.id === user?.uid);
+  const currentUserPersonnel = personnel.find(p => p.id === (user?.uid || user?.id));
 
   // If not admin, restrict view to own profile or assigned sections
   const [filterAdviser, setFilterAdviser] = useState('all'); // 'all', 'advisers', 'non-advisers'
@@ -98,7 +98,7 @@ const PersonnelPage = () => {
   };
 
   const handleRowClick = (person) => {
-    if (isAdmin || person.id === user?.uid) {
+    if (isAdmin || person.id === (user?.uid || user?.id)) {
       navigate(`/personnel/${person.id}`);
     }
   };
@@ -176,6 +176,12 @@ const PersonnelPage = () => {
   const handleBulkUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File size exceeds 5MB limit. Please upload a smaller CSV file.");
+      event.target.value = null;
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -380,26 +386,116 @@ const PersonnelPage = () => {
             </table>
           </div>
         ) : (
-          currentUserPersonnel && (
-            <div className="profile-view-only">
-              <div className="profile-card">
-                <h2>{buildFullName(normalizePersonnelRecord(currentUserPersonnel))}</h2>
-                <p className="position-tag">
-                  {currentUserPersonnel.position || 'N/A'} • {(currentUserPersonnel.role || 'N/A').replace('_', ' ').toUpperCase()}
-                </p>
-                <p style={{ color: 'var(--gray-600)', marginBottom: '1.25rem' }}>
-                  View your complete personnel profile on a full page for easier reading.
-                </p>
-                <button
-                  type="button"
-                  className="edit-btn"
-                  onClick={() => navigate(`/personnel/${currentUserPersonnel.id}`)}
-                >
-                  View My Profile
-                </button>
+          currentUserPersonnel && (() => {
+            const displayPerson = normalizePersonnelRecord(currentUserPersonnel);
+            const sectionNames = (currentUserPersonnel.assignedSections || [])
+              .map((id) => sections.find((s) => s.id === id)?.name || id)
+              .join(', ');
+            return (
+              <div className="profile-dashboard-view">
+                <div className="profile-dashboard-card">
+                  <div className="profile-dashboard-header">
+                    <div className="profile-avatar-large-container">
+                      <div className="profile-avatar-large">
+                        {(displayPerson.firstName || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="profile-header-info">
+                      <h2>{buildFullName(displayPerson)}</h2>
+                      <div className="profile-badges-row">
+                        <span className="profile-position-badge">
+                          {currentUserPersonnel.position || 'Teacher I'}
+                        </span>
+                        <span className="profile-role-badge">
+                          {(currentUserPersonnel.role || 'Teacher').replace('_', ' ').toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="edit-profile-btn-primary"
+                      onClick={() => navigate(`/personnel/${currentUserPersonnel.id}/edit`)}
+                    >
+                      ✏️ Edit Profile Details
+                    </button>
+                  </div>
+
+                  <div className="profile-dashboard-sections">
+                    <div className="profile-info-section">
+                      <h3>📋 Personal Information</h3>
+                      <div className="profile-info-grid-aligned">
+                        <div className="info-cell">
+                          <span className="info-cell-label">First Name</span>
+                          <span className="info-cell-value">{displayPerson.firstName || '—'}</span>
+                        </div>
+                        <div className="info-cell">
+                          <span className="info-cell-label">Middle Name</span>
+                          <span className="info-cell-value">{displayPerson.middleName || '—'}</span>
+                        </div>
+                        <div className="info-cell">
+                          <span className="info-cell-label">Last Name</span>
+                          <span className="info-cell-value">{displayPerson.lastName || '—'}</span>
+                        </div>
+                        <div className="info-cell">
+                          <span className="info-cell-label">Name Extension</span>
+                          <span className="info-cell-value">{displayPerson.nameExtension || '—'}</span>
+                        </div>
+                        <div className="info-cell full-width">
+                          <span className="info-cell-label">Email Address</span>
+                          <span className="info-cell-value">{currentUserPersonnel.email}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="profile-info-section">
+                      <h3>🏫 School Assignments & Roles</h3>
+                      <div className="profile-info-grid-aligned">
+                        <div className="info-cell">
+                          <span className="info-cell-label">Employee ID</span>
+                          <span className="info-cell-value">{currentUserPersonnel.id}</span>
+                        </div>
+                        <div className="info-cell">
+                          <span className="info-cell-label">Subject Specializations</span>
+                          <span className="info-cell-value">{(currentUserPersonnel.subjects || []).join(', ') || 'None'}</span>
+                        </div>
+                        <div className="info-cell full-width">
+                          <span className="info-cell-label">Assigned Sections</span>
+                          <span className="info-cell-value">{sectionNames || 'None'}</span>
+                        </div>
+                        <div className="info-cell full-width">
+                          <span className="info-cell-label">Assigned Ancillary / Coordinatorship</span>
+                          <span className="info-cell-value">{currentUserPersonnel.assignedReports || 'None'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {customFieldsConfig.length > 0 && (
+                      <div className="profile-info-section full-width">
+                        <h3>⚙️ Custom Information</h3>
+                        <div className="profile-info-grid-aligned">
+                          {customFieldsConfig.map((field) => {
+                            const val = currentUserPersonnel.customFields?.[field.id];
+                            return (
+                              <div key={field.id} className="info-cell">
+                                <span className="info-cell-label">{field.label}</span>
+                                <span className="info-cell-value">
+                                  {val === undefined || val === null || val === ''
+                                    ? '—'
+                                    : field.type === 'checkbox'
+                                    ? val ? 'Yes' : 'No'
+                                    : String(val)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          )
+            );
+          })()
         )}
 
         {isAdmin && showBulkUpload && (

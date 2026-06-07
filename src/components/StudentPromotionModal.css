@@ -1,0 +1,212 @@
+.promotion-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.promotion-modal {
+  background-color: var(--white);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  animation: modalFadeIn 0.3s ease;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.promotion-modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--gray-200);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.promotion-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--gray-900);
+  font-weight: 700;
+}
+
+.promotion-modal-header .close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--gray-500);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.promotion-modal-header .close-btn:hover {
+  color: var(--gray-800);
+}
+
+.promotion-modal-body {
+  padding: 1.5rem;
+}
+
+.promotion-alert {
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.promotion-alert.info {
+  background-color: var(--light-blue);
+  color: var(--primary-blue);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.promotion-alert strong {
+  font-weight: 700;
+}
+
+.promotion-subtext {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.promotion-modal-body .form-group {
+  margin-bottom: 1.25rem;
+}
+
+.promotion-modal-body .form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  font-size: 0.9rem;
+}
+
+.promotion-modal-body .form-group select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background-color: var(--white);
+  transition: border-color 0.2s;
+}
+
+.promotion-modal-body .form-group select:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+}
+
+.promotion-modal-body .form-group select:disabled {
+  background-color: var(--gray-100);
+  cursor: not-allowed;
+}
+
+.loading-text {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--gray-500);
+  font-style: italic;
+}
+
+.promotion-modal-footer {
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid var(--gray-200);
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  background-color: var(--gray-50);
+}
+
+.promotion-modal-footer button {
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.promotion-modal-footer .cancel-btn {
+  background-color: var(--white);
+  border: 1px solid var(--gray-300);
+  color: var(--gray-700);
+}
+
+.promotion-modal-footer .cancel-btn:hover {
+  background-color: var(--gray-100);
+}
+
+.promotion-modal-footer .confirm-btn {
+  background-color: var(--primary-blue);
+  border: none;
+  color: white;
+}
+
+.promotion-modal-footer .confirm-btn:hover {
+  background-color: var(--secondary-blue);
+}
+
+body.dark .promotion-modal {
+  background-color: #1e293b;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+body.dark .promotion-modal-header {
+  border-bottom-color: var(--gray-800);
+}
+
+body.dark .promotion-modal-header h2 {
+  color: var(--white);
+}
+
+body.dark .promotion-modal-body .form-group label {
+  color: var(--gray-300);
+}
+
+body.dark .promotion-modal-body .form-group select {
+  background-color: #0f172a;
+  border-color: var(--gray-700);
+  color: var(--white);
+}
+
+body.dark .promotion-alert.info {
+  background-color: rgba(37, 99, 235, 0.1);
+  color: #60a5fa;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+body.dark .promotion-modal-footer {
+  background-color: #0f172a;
+  border-top-color: var(--gray-800);
+}
+
+body.dark .promotion-modal-footer .cancel-btn {
+  background-color: #1e293b;
+  border-color: var(--gray-700);
+  color: var(--gray-300);
+}
+
+body.dark .promotion-modal-footer .cancel-btn:hover {
+  background-color: var(--gray-800);
+}

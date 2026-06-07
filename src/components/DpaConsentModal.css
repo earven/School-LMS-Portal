@@ -1,0 +1,124 @@
+.dpa-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.dpa-modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  font-family: 'Inter', sans-serif;
+}
+
+.dpa-modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: var(--text-main, #111827);
+  font-size: 1.5rem;
+  border-bottom: 2px solid var(--primary, #4e73df);
+  padding-bottom: 0.75rem;
+}
+
+.dpa-modal-body {
+  color: var(--text-secondary, #374151);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+.dpa-modal-body p {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.dpa-modal-body ul {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.dpa-modal-body li {
+  margin-bottom: 0.5rem;
+}
+
+.dpa-modal-consent {
+  background-color: #f3f4f6;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border: 1px solid #e5e7eb;
+}
+
+.dpa-checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-weight: 600;
+  color: #1f2937;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.dpa-checkbox-label input[type="checkbox"] {
+  margin-top: 0.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--primary, #4e73df);
+  cursor: pointer;
+}
+
+.dpa-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.btn-decline {
+  padding: 0.75rem 1.25rem;
+  background-color: white;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-decline:hover {
+  background-color: #f9fafb;
+  color: #111827;
+}
+
+.btn-accept {
+  padding: 0.75rem 1.5rem;
+  background-color: var(--primary, #4e73df);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-accept:hover:not(:disabled) {
+  background-color: #2e59d9;
+}
+
+.btn-accept:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.7;
+}

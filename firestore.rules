@@ -13,7 +13,9 @@ service cloud.firestore {
     }
     
     function getRole() {
-      return isSignedIn() ? getUserData().role : 'guest';
+      return (isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
+        : 'guest';
     }
     
     function isAdmin() {
@@ -24,14 +26,23 @@ service cloud.firestore {
       return isSignedIn() && getRole() == 'teacher';
     }
 
+    function isAuthorized() {
+      return isSignedIn() && (getRole() == 'teacher' || getRole() == 'admin' || getRole() == 'system_admin');
+    }
+
     // Users/Personnel collection
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isAuthorized() || (isSignedIn() && request.auth.uid == userId);
       allow write: if isAdmin();
       allow create: if isSignedIn() && request.auth.uid == userId;
       // Allow users to update their own profile (limited fields)
+      // Allow transitioning from 'pending' to 'teacher' upon code verification
       allow update: if isSignedIn() && request.auth.uid == userId 
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'assignedSections']);
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assignedSections'])
+                    && (
+                      !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) 
+                      || (resource.data.role == 'pending' && request.resource.data.role == 'teacher')
+                    );
     }
     
     // Students collection
@@ -47,14 +58,19 @@ service cloud.firestore {
     
     // Sections collection
     match /sections/{sectionId} {
-      allow read: if isSignedIn();
+      allow read: if isAuthorized();
       allow write: if isAdmin();
     }
     
     // Settings collection
     match /settings/{settingId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // Enrolment Students Collection
+    match /enrolment_students/{studentId} {
+      allow read, write: if isAdmin() || (isSignedIn() && getUserData().isEnrolmentCoordinator == true);
     }
 
     // Submission tasks created by admin
@@ -65,7 +81,7 @@ service cloud.firestore {
                     && request.resource.data.title is string
                     && request.resource.data.description is string
                     && request.resource.data.deadline is string
-                    && request.resource.data.recipients is string;
+                    && (request.resource.data.recipients is string || request.resource.data.recipients is list);
       allow update, delete: if isAdmin();
     }
 
@@ -90,8 +106,14 @@ service cloud.firestore {
 
     // Daily Student Attendance
     match /attendance/{attendanceId} {
-      allow read: if isSignedIn();
+      allow read: if isAuthorized();
       allow write: if isTeacher() || isAdmin();
+    }
+
+    // Daily Teacher/Personnel Attendance
+    match /teacher_attendance/{logId} {
+      allow read: if isAuthorized();
+      allow write: if isAdmin();
     }
 
     // Teacher responses for submission tasks
@@ -101,11 +123,12 @@ service cloud.firestore {
                     && request.resource.data.userId == request.auth.uid
                     && request.resource.data.submissionId is string
                     && request.resource.data.status == 'Submitted';
-      allow update: if isTeacher()
-                    && resource.data.userId == request.auth.uid
-                    && request.resource.data.userId == resource.data.userId
-                    && request.resource.data.submissionId == resource.data.submissionId
-                    && request.resource.data.status == 'Submitted';
+      allow update: if (isTeacher()
+                        && resource.data.userId == request.auth.uid
+                        && request.resource.data.userId == resource.data.userId
+                        && request.resource.data.submissionId == resource.data.submissionId
+                        && request.resource.data.status == 'Submitted')
+                    || isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -117,7 +140,33 @@ service cloud.firestore {
 
     // Calendar Events
     match /events/{eventId} {
-      allow read: if isSignedIn();
+      allow read: if isAuthorized() && (
+        !('isPrivate' in resource.data) || 
+        resource.data.isPrivate == false || 
+        resource.data.createdBy == request.auth.uid
+      );
+      allow create: if isAdmin() || (
+        isAuthorized() && 
+        request.resource.data.createdBy == request.auth.uid && 
+        request.resource.data.isPrivate == true
+      );
+      allow update, delete: if isAdmin() || (
+        isAuthorized() && 
+        resource.data.createdBy == request.auth.uid && 
+        request.resource.data.createdBy == request.auth.uid &&
+        (request.resource.data.isPrivate == true || !('isPrivate' in request.resource.data))
+      );
+    }
+
+    // Inventory
+    match /inventory/{itemId} {
+      allow read: if isAdmin() || (isTeacher() && resource.data.assignedTo == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    // Master Inventory Catalog
+    match /master_inventory/{itemId} {
+      allow read: if isAdmin() || isTeacher();
       allow write: if isAdmin();
     }
   }

@@ -139,8 +139,79 @@ export const AttendanceProvider = ({ children }) => {
     }
   };
 
+  // Fetch teacher/personnel attendance for a specific month (YYYY-MM)
+  const fetchTeacherAttendance = async (yearMonth) => {
+    try {
+      const q = query(
+        collection(db, 'teacher_attendance'),
+        where('yearMonth', '==', yearMonth)
+      );
+      const snapshot = await getDocs(q);
+      return { success: true, data: snapshot.docs.map(d => ({ id: d.id, ...d.data() })) };
+    } catch (e) {
+      console.error("Failed to fetch teacher attendance:", e);
+      return { success: false, error: e.message, data: [] };
+    }
+  };
+
+  // Save or update teacher attendance in batch (for teacher monthly grid/daily updates)
+  const saveTeacherAttendanceBatch = async (yearMonth, attendanceDataArray) => {
+    // attendanceDataArray: [{teacherId, date, status, remarks}]
+    try {
+      const batch = writeBatch(db);
+      
+      // Get all existing records for this month
+      const q = query(
+        collection(db, 'teacher_attendance'),
+        where('yearMonth', '==', yearMonth)
+      );
+      const snapshot = await getDocs(q);
+      const existingRecords = {};
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        existingRecords[`${data.teacherId}_${data.date}`] = doc.id;
+      });
+      
+      attendanceDataArray.forEach(data => {
+        const key = `${data.teacherId}_${data.date}`;
+        if (existingRecords[key]) {
+          const docRef = doc(db, 'teacher_attendance', existingRecords[key]);
+          batch.update(docRef, {
+            status: data.status,
+            remarks: data.remarks || '',
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          const docRef = doc(collection(db, 'teacher_attendance'));
+          batch.set(docRef, {
+            teacherId: data.teacherId,
+            date: data.date,
+            yearMonth,
+            status: data.status,
+            remarks: data.remarks || '',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+      });
+      
+      await batch.commit();
+      return { success: true };
+    } catch (error) {
+      console.error("Error batch saving teacher attendance:", error);
+      return { success: false, error: error.message };
+    }
+  };
+
   return (
-    <AttendanceContext.Provider value={{ fetchAttendance, fetchSchoolAttendance, saveDailyAttendance, saveBatchAttendance }}>
+    <AttendanceContext.Provider value={{ 
+      fetchAttendance, 
+      fetchSchoolAttendance, 
+      saveDailyAttendance, 
+      saveBatchAttendance, 
+      fetchTeacherAttendance, 
+      saveTeacherAttendanceBatch 
+    }}>
       {children}
     </AttendanceContext.Provider>
   );

@@ -11,6 +11,8 @@
     "test": "vitest"
   },
   "dependencies": {
+    "browser-image-compression": "^2.0.2",
+    "exceljs": "^4.4.0",
     "firebase": "^12.13.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -34,6 +36,7 @@
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "eslint-plugin-unused-imports": "^4.4.1",
     "globals": "^17.5.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.14",

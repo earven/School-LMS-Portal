@@ -1,0 +1,274 @@
+.enrolment-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    font-family: 'Inter', sans-serif;
+    color: var(--text-main, #111827);
+}
+
+.enrolment-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.enrolment-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+.enrolment-header p {
+    color: var(--text-muted, #6b7280);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.enrolment-main {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+@media (max-width: 960px) {
+    .enrolment-main {
+        grid-template-columns: 1fr;
+    }
+}
+
+.form-section, .list-section {
+    background: var(--surface, #ffffff);
+    padding: 1.25rem;
+    border-radius: var(--radius, 8px);
+    border: 1px solid var(--border-color, #e5e7eb);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    min-width: 0;
+}
+
+/* Make the form section sticky so it stays visible while scrolling the list */
+.form-section {
+    position: sticky;
+    top: 2rem;
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+    padding-right: 1.5rem; /* extra right padding to prevent content from hitting scrollbar */
+}
+
+/* Custom scrollbar for the form section */
+.form-section::-webkit-scrollbar {
+    width: 6px;
+}
+.form-section::-webkit-scrollbar-track {
+    background: transparent;
+}
+.form-section::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 10px;
+}
+
+.form-section h2, .list-section h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+/* Compact grid for side panel */
+.form-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.form-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem 1.25rem; /* Larger horizontal gap, smaller vertical gap */
+}
+
+.input-group {
+    margin-bottom: 0; /* Reset margin since we use gap in flex/grid */
+}
+
+.input-group label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 0.2rem;
+    color: var(--text-main, #111827);
+}
+
+.input-group input[type="text"], .input-group input[type="number"], .input-group select {
+    width: 100%;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.8rem;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 5px;
+    background-color: var(--bg-color, #fafafa);
+    transition: border-color 0.2s;
+    font-family: inherit;
+}
+
+.input-group input[type="text"]:focus, .input-group input[type="number"]:focus, .input-group select:focus {
+    outline: none;
+    border-color: var(--primary, #4e73df);
+}
+
+.checkbox-section-horizontal {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    margin-top: 0.4rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.checkbox-group {
+    margin-bottom: 0.25rem;
+}
+
+.checkbox-group > label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.checkbox-item input[type="checkbox"] {
+    margin-right: 0.5rem;
+    accent-color: var(--primary, #4e73df);
+    width: 0.9rem;
+    height: 0.9rem;
+    cursor: pointer;
+}
+
+.checkbox-item label {
+    margin-bottom: 0;
+    font-weight: 400;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.btn-primary {
+    width: 100%;
+    padding: 0.55rem;
+    background-color: var(--primary, #4e73df);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: #2e59d9;
+}
+
+.list-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.list-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.grade-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.grade-tab {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 9999px;
+    background-color: var(--bg-color, #fafafa);
+    color: var(--text-muted, #6b7280);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.grade-tab:hover {
+    border-color: var(--primary, #4e73df);
+    color: var(--primary, #4e73df);
+}
+
+.grade-tab.active {
+    background-color: var(--primary, #4e73df);
+    color: white;
+    border-color: var(--primary, #4e73df);
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.students-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.students-table th, .students-table td {
+    padding: 0.5rem 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.students-table th {
+    font-weight: 600;
+    color: var(--text-muted, #6b7280);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-yes {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.status-no {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.btn-delete {
+    background: none;
+    border: none;
+    color: var(--text-muted, #6b7280);
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.btn-delete:hover {
+    color: var(--danger, #ef4444);
+}

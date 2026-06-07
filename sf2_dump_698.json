@@ -1,0 +1,13 @@
+{
+  "name": "grep_search",
+  "args": {
+    "CaseInsensitive": "true",
+    "Includes": "[\"AttendanceTracker.jsx\"]",
+    "IsRegex": "false",
+    "MatchPerLine": "true",
+    "Query": "\"handleDownloadOfficialSF2\"",
+    "SearchPath": "\"d:/coding_files/School-LMS-Portal/src/pages/TeacherTools\"",
+    "toolAction": "\"Checking for SF2 feature\"",
+    "toolSummary": "\"Check SF2 feature\""
+  }
+}

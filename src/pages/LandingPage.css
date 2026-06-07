@@ -54,8 +54,13 @@
 .nav-school-name {
   font-weight: 700;
   font-size: 1.25rem;
-  color: var(--color-heading);
+  color: white; /* Readable white text before scrolling */
   letter-spacing: -0.02em;
+  transition: color 0.3s ease;
+}
+
+.landing-nav.scrolled .nav-school-name {
+  color: var(--color-heading); /* Switch to dark text after scroll */
 }
 
 .login-btn {

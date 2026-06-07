@@ -34,6 +34,15 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
   const isEditMode = mode === 'edit' || isNew;
   const selectedPerson = isNew ? null : personnel.find((p) => p.id === personnelId);
 
+  console.log("DEBUG PersonnelDetailPage:", {
+    user,
+    userId: user?.uid || user?.id,
+    selectedPersonId: selectedPerson?.id,
+    match: selectedPerson?.id === (user?.uid || user?.id),
+    isAdmin,
+    isEditMode
+  });
+
   const [formData, setFormData] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -62,13 +71,13 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
 
     if (!selectedPerson) return;
 
-    const canAccess = isAdmin || selectedPerson.id === user?.uid;
+    const canAccess = isAdmin || selectedPerson.id === (user?.uid || user?.id);
     if (!canAccess) {
       navigate('/personnel', { replace: true });
       return;
     }
 
-    if (isEditMode && isAdmin) {
+    if (isEditMode && (isAdmin || selectedPerson?.id === (user?.uid || user?.id))) {
         const normalized = normalizePersonnelRecord(selectedPerson);
         setFormData({
           ...normalized,
@@ -76,7 +85,7 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
           customFields: { ...(selectedPerson.customFields || {}) },
         });
     }
-  }, [isNew, isAdmin, isEditMode, navigate, selectedPerson, user?.uid]);
+  }, [isNew, isAdmin, isEditMode, navigate, selectedPerson, user?.uid, user?.id]);
 
   const handleCustomFieldChange = (fieldId, value) => {
     setFormData((prev) => ({
@@ -198,7 +207,7 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
             )}
           </div>
 
-          {!isEditMode && isAdmin && (
+          {!isEditMode && (isAdmin || selectedPerson?.id === (user?.uid || user?.id)) && (
             <div className="personnel-detail-actions">
               <button
                 type="button"
@@ -207,13 +216,15 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
               >
                 Edit Record
               </button>
-              <button
-                type="button"
-                className="personnel-action-btn personnel-action-btn--delete"
-                onClick={handleDelete}
-              >
-                Delete Record
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="personnel-action-btn personnel-action-btn--delete"
+                  onClick={handleDelete}
+                >
+                  Delete Record
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -227,6 +238,7 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
               customFieldsConfig={customFieldsConfig}
               sections={sections}
               showAuthFields={isNew}
+              isAdmin={isAdmin}
             />
 
             <div className="personnel-detail-form-actions">
@@ -252,7 +264,7 @@ const PersonnelDetailPage = ({ mode = 'view' }) => {
           <div className="personnel-detail-view">
             <div className="profile-info-grid">
               <div className="info-item">
-                <label>Personnel ID</label>
+                <label>Employee ID</label>
                 <span>{selectedPerson.id}</span>
               </div>
               <div className="info-item">

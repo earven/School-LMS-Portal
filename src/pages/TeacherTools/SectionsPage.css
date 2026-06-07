@@ -3,14 +3,15 @@
 .sections-container {
     display: flex;
     flex-direction: column;
-    height: auto; /* allow auto height */
+    height: calc(100vh - 11.5rem);
+    overflow: hidden;
 }
 
 .sections-content {
     display: flex;
     gap: 1.5rem;
     flex-grow: 1;
-    overflow: visible; /* show overflow instead of hiding */
+    overflow: hidden;
 }
 
 /* Grid View Styles */
@@ -577,12 +578,12 @@ body.dark .inline-add-student {
     margin-top: 0.5rem;
 }
 
-/* Sections content should scroll if needed */
+/* Sections content should not scroll the main page */
 .sections-content {
     display: flex;
     gap: 1.5rem;
     flex-grow: 1;
-    overflow-y: auto; /* allow scrolling within content */
+    overflow: hidden;
 }
 
 
@@ -722,4 +723,157 @@ body.dark .inline-add-student {
     .level-cards-grid {
         grid-template-columns: 1fr;
     }
+}
+/* /* Grouped Sections Styles - Kanban/Column layout */
+.sections-grouped-container {
+    display: flex;
+    flex-direction: row;
+    gap: 1.5rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.5rem;
+    flex-grow: 1;
+    align-items: stretch;
+}
+
+.grade-level-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: #f8fafc;
+    padding: 0.75rem;
+    border-radius: 16px;
+    border: 1px solid var(--gray-200);
+    min-width: 280px;
+    max-width: 320px;
+    height: 100%;
+    flex-shrink: 0;
+}
+
+.grade-level-header {
+    margin: 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 3px solid var(--primary-blue);
+    color: var(--color-heading);
+    font-size: 1.15rem;
+    font-weight: 800;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.sections-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    overflow-y: auto;
+    flex-grow: 1;
+    padding-right: 4px;
+}
+
+.section-list-item {
+    background: var(--white);
+    border-radius: 10px;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.section-list-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+    border-color: var(--primary-blue);
+}
+
+.section-list-item.selected {
+    border: 2px solid var(--primary-blue);
+    background-color: var(--light-blue);
+}
+
+.list-item-status {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.75rem;
+}
+
+.list-item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding-right: 1.2rem; /* make room for status dot */
+}
+
+.section-name-compact {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--color-heading);
+}
+
+.adviser-name-compact {
+    font-size: 0.85rem;
+    color: var(--color-text-light);
+    font-weight: 500;
+}
+
+.list-item-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.compact-stat {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text);
+    background: var(--color-background-soft);
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+}
+
+.highlight-4ps {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.list-item-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px dashed var(--gray-200);
+    padding-top: 0.5rem;
+    margin-top: 0.15rem;
+}
+
+.manage-icon-btn {
+    background: var(--color-background-soft);
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    transition: all 0.2s;
+    color: var(--color-text);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.manage-icon-btn:hover {
+    background: var(--gray-200);
+}
+
+.view-arrow {
+    font-weight: 800;
+    color: var(--primary-blue);
+    font-size: 1.1rem;
+    transition: transform 0.2s;
+}
+.section-list-item:hover .view-arrow {
+    transform: translateX(4px);
 }

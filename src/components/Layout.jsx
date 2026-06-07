@@ -5,6 +5,7 @@ import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
+import DpaConsentModal from './DpaConsentModal';
 import './Layout.css';
 
 const Layout = () => {
@@ -69,6 +70,8 @@ const Layout = () => {
         </div>,
         document.body
       )}
+
+      <DpaConsentModal />
     </div>
   );
 };

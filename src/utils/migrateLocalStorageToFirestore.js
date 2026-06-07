@@ -1,6 +1,6 @@
 // src/utils/migrateLocalStorageToFirestore.js
 import { db } from '../firebase';
-import { collection, addDoc, setDoc, doc } from 'firebase/firestore';
+import { setDoc, doc } from 'firebase/firestore';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 
 const auth = getAuth();

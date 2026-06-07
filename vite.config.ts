@@ -13,6 +13,9 @@ export default defineConfig({
     port: 5176, // Changed to a different port
     strictPort: false, // Optional: set to false to allow Vite to pick another port if 5176 is busy
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+  },
   test: {
     globals: true,
     environment: 'jsdom',

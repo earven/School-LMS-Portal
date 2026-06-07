@@ -8,7 +8,6 @@ import {
   getDocs, 
   onSnapshot, 
   query, 
-  setDoc, 
   addDoc,
   updateDoc, 
   deleteDoc, 
@@ -28,7 +27,11 @@ export const SubmissionProvider = ({ children }) => {
 
   // Fetch Tasks (Submissions created by Admin)
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || !user.role || user.role === 'pending') {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     const q = query(collection(db, 'submissions'), orderBy('createdAt', 'desc'));
@@ -37,6 +40,9 @@ export const SubmissionProvider = ({ children }) => {
       const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTasks(tasksData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error fetching submissions tasks:", error);
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -44,7 +50,10 @@ export const SubmissionProvider = ({ children }) => {
 
   // Fetch Responses (Actual submissions from teachers)
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || !user.role || user.role === 'pending') {
+      setResponses([]);
+      return;
+    }
 
     let q;
     if (['admin', 'system_admin'].includes(user?.role)) {
@@ -58,6 +67,8 @@ export const SubmissionProvider = ({ children }) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const responsesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setResponses(responsesData);
+    }, (error) => {
+      console.error("Error fetching submission responses:", error);
     });
 
     return () => unsubscribe();
@@ -195,6 +206,47 @@ export const SubmissionProvider = ({ children }) => {
     }
   };
 
+  // Admin: Review/grade a response
+  const reviewResponse = async (responseId, reviewData) => {
+    try {
+      await updateDoc(doc(db, 'submission_responses', responseId), {
+        status: reviewData.status, // e.g. 'Approved', 'Needs Revision'
+        feedback: reviewData.feedback || '',
+        reviewedAt: serverTimestamp(),
+        reviewedBy: user.uid
+      });
+
+      // Send notification back to the teacher
+      try {
+        const respSnap = await getDoc(doc(db, 'submission_responses', responseId));
+        if (respSnap.exists()) {
+          const respData = respSnap.data();
+          const taskSnap = await getDoc(doc(db, 'submissions', respData.submissionId));
+          const taskTitle = taskSnap.exists() ? taskSnap.data().title : 'Task';
+
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: respData.userId,
+            senderId: user.uid,
+            senderName: user.fullName || 'Admin',
+            title: reviewData.status === 'Approved' ? 'Submission Approved' : 'Action Required: Re-submission Needed',
+            message: reviewData.status === 'Approved' 
+              ? `Your submission for "${taskTitle}" has been approved.`
+              : `Your submission for "${taskTitle}" needs revision. Feedback: ${reviewData.feedback}`,
+            type: 'submission_review',
+            read: false,
+            link: '/teacher-tools/submissions',
+            createdAt: serverTimestamp()
+          });
+        }
+      } catch (notifErr) {
+        console.error('Error triggering review notification:', notifErr);
+      }
+    } catch (e) {
+      console.error('Error reviewing response:', e);
+      throw e;
+    }
+  };
+
   const deleteTask = async (taskId) => {
     try {
       await deleteDoc(doc(db, 'submissions', taskId));
@@ -213,7 +265,8 @@ export const SubmissionProvider = ({ children }) => {
       createTask, 
       updateTask,
       submitResponse, 
-      deleteTask 
+      deleteTask,
+      reviewResponse
     }}>
       {children}
     </SubmissionContext.Provider>

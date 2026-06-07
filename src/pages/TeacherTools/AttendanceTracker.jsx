@@ -5,6 +5,9 @@ import { useStudents } from '../../context/StudentContext';
 import { useAttendance } from '../../context/AttendanceContext';
 import { useCalendar } from '../../context/CalendarContext';
 import { useSettings } from '../../context/SettingsContext';
+import * as ExcelJS from 'exceljs';
+import { generateSF2Excel } from '../../utils/sf2Generator';
+import { generateSF4Excel } from '../../utils/sf4Generator';
 import './AttendanceTracker.css';
 
 const AttendanceTracker = () => {
@@ -13,7 +16,7 @@ const AttendanceTracker = () => {
   const { students, updateStudent } = useStudents();
   const { fetchAttendance, fetchSchoolAttendance, saveBatchAttendance } = useAttendance();
   const { events } = useCalendar();
-  const { settings } = useSettings();
+  const { settings, isReadOnly, sessionAcademicYear } = useSettings();
 
   const isAdmin = ['admin', 'system_admin'].includes(user?.role);
   const mySections = useMemo(() => {
@@ -79,7 +82,7 @@ const AttendanceTracker = () => {
 
   const activeSection = mySections.find(s => s.id === selectedSectionId);
   const isAdviser = activeSection && activeSection.adviserId === user?.uid;
-  const canEdit = isAdviser; // Even admins can only view unless they are the assigned adviser
+  const canEdit = isAdviser && !isReadOnly; // Even admins can only view unless they are the assigned adviser
 
   const sectionStudents = useMemo(() => {
     if (!activeSection) return [];
@@ -368,24 +371,101 @@ const AttendanceTracker = () => {
     return {
       daysOfClasses,
       enrolledFriday: sectionStudents.length, // Placeholder assumption
+      enrolledFriday: boys.length + girls.length,
+      enrolledFridayMale: boys.length,
+      enrolledFridayFemale: girls.length,
+      enrolledFridayTotal: boys.length + girls.length,
       lateEnrolled: 0,
-      registeredEnd: sectionStudents.length,
-      pctEnrolled: 100,
+      registeredEnd: boys.length + girls.length,
       maleRegistered: boys.length,
       femaleRegistered: girls.length,
-      totalRegistered: sectionStudents.length,
-      maleADA: maleADA.toFixed(2),
-      femaleADA: femaleADA.toFixed(2),
-      totalADA: totalADA.toFixed(2),
-      malePct: maleAttendancePct.toFixed(2),
-      femalePct: femaleAttendancePct.toFixed(2),
-      totalPct: totalAttendancePct.toFixed(2),
-      consecutive5Days,
-      droppedOut,
-      transferredOut,
-      transferredIn
+      totalRegistered: boys.length + girls.length,
+      pctEnrolled: '100.0', 
+      maleADA: (boys.length > 0 ? (boys.length * daysOfClasses - maleTotalAbsences) / daysOfClasses : 0).toFixed(2),
+      femaleADA: (girls.length > 0 ? (girls.length * daysOfClasses - femaleTotalAbsences) / daysOfClasses : 0).toFixed(2),
+      totalADA: ((boys.length + girls.length) > 0 ? ((boys.length + girls.length) * daysOfClasses - (maleTotalAbsences + femaleTotalAbsences)) / daysOfClasses : 0).toFixed(2),
+      malePct: boys.length > 0 ? (((boys.length * daysOfClasses - maleTotalAbsences) / (boys.length * daysOfClasses)) * 100).toFixed(1) : '0.0',
+      femalePct: girls.length > 0 ? (((girls.length * daysOfClasses - femaleTotalAbsences) / (girls.length * daysOfClasses)) * 100).toFixed(1) : '0.0',
+      totalPct: (boys.length + girls.length) > 0 ? ((((boys.length + girls.length) * daysOfClasses - (maleTotalAbsences + femaleTotalAbsences)) / ((boys.length + girls.length) * daysOfClasses)) * 100).toFixed(1) : '0.0',
+      consecutive5Days: studentAlerts.filter(a => a.maxConsecutive >= 5).length,
+      droppedOut: sectionStudents.filter(s => s.status === 'Dropped Out').length,
+      transferredOut: sectionStudents.filter(s => s.status === 'Transferred Out').length,
+      transferredIn: sectionStudents.filter(s => s.status === 'Transferred In').length
     };
   }, [viewMode, activeSection, sectionStudents, monthlyState, manualDaysOfClasses, studentAlerts]);
+
+  const handleDownloadOfficialSF2 = async () => {
+    if (!sf2Summary) return;
+    try {
+      const response = await fetch('/sf2_template.xlsx');
+      const arrayBuffer = await response.arrayBuffer();
+      
+      const boys = sectionStudents.filter(s => s.gender === 'Male');
+      const girls = sectionStudents.filter(s => s.gender === 'Female');
+      
+      const buffer = await generateSF2Excel({
+        templateBuffer: arrayBuffer,
+        ExcelJS,
+        sectionName: activeSection.name,
+        gradeLevel: activeSection.gradeLevel,
+        schoolName: settings.schoolName || 'School',
+        schoolYear: sessionAcademicYear || settings.academicYear || '',
+        selectedMonth,
+        suspendedDates: allSuspendedDates,
+        boys,
+        girls,
+        monthlyState,
+        daysOfClasses: sf2Summary.daysOfClasses,
+        sf2Summary,
+        adviserName: `${user?.firstName || ''} ${user?.lastName || ''}`
+      });
+      
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SF2_${activeSection.gradeLevel}_${activeSection.name}_${selectedMonth}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error generating SF2 Excel:", error);
+      alert("Failed to generate SF2 Excel file. Please ensure sf2_template.xlsx exists in the public folder.");
+    }
+  };
+
+  const handleDownloadOfficialSF4 = async () => {
+    try {
+      const response = await fetch('/sf4_template_final.xlsx');
+      const arrayBuffer = await response.arrayBuffer();
+      
+      const buffer = await generateSF4Excel({
+        templateBuffer: arrayBuffer,
+        ExcelJS,
+        schoolId: settings.schoolId || '',
+        schoolName: settings.schoolName || 'School',
+        schoolYear: sessionAcademicYear || settings.academicYear || '',
+        region: settings.region || '',
+        division: settings.division || '',
+        selectedMonth,
+        sf4Data: sf4Summary
+      });
+      
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SF4_${settings.schoolName || 'School'}_${selectedMonth}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error generating SF4 Excel:", error);
+      alert("Failed to generate SF4 Excel file. Please ensure sf4_template_final.xlsx exists in the public folder.");
+    }
+  };
 
   const renderSF2Grid = () => {
     if (!sf2Summary) return null;
@@ -542,7 +622,8 @@ const AttendanceTracker = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <h2 style={{ margin: 0 }}>SF2 Monthly Grid: {activeSection.name} ({selectedMonth})</h2>
           
-          <div className="no-print" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="no-print" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button className="primary-btn" onClick={handleDownloadOfficialSF2} style={{ padding: '0.4rem 0.8rem' }}>⬇️ Download Official SF2</button>
             <button className="secondary-btn" onClick={handleExportSF2CSV} style={{ padding: '0.4rem 0.8rem' }}>📥 Export CSV</button>
             <button className="secondary-btn" onClick={() => window.print()} style={{ padding: '0.4rem 0.8rem' }}>🖨️ Print / Save PDF</button>
           </div>
