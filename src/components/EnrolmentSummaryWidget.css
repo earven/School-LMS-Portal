@@ -1,88 +1,273 @@
-.enrolment-summary-widget {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  background: white;
-  border-radius: var(--radius, 8px);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  border: 1px solid var(--border-color, #e5e7eb);
-}
+/* EnrolmentSummaryWidget.css */
 
-.enrolment-summary-widget.loading {
+.enrolment-analytics-card {
+  background: var(--color-card-bg, #ffffff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-lg, 12px);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow-sm);
   display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100px;
-  color: var(--text-muted, #6b7280);
-}
-
-.summary-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.25rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
-}
-
-.summary-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-main, #111827);
-}
-
-.summary-total {
-  font-size: 0.85rem;
-  font-weight: 600;
-  background-color: var(--primary, #4e73df);
-  color: white;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-}
-
-.summary-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  flex-direction: column;
   gap: 1rem;
 }
 
-.summary-stat-box {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  background-color: var(--bg-color, #f8f9fa);
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #e5e7eb);
+body.dark .enrolment-analytics-card {
+  background: #1e293b;
+  border-color: #334155;
 }
 
-.summary-stat-box .stat-icon {
-  font-size: 1.25rem;
-  width: 36px;
-  height: 36px;
+.analytics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle, #f1f5f9);
+  padding-bottom: 0.75rem;
+}
+
+body.dark .analytics-header {
+  border-bottom-color: #334155;
+}
+
+.analytics-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--color-heading, #0f172a);
+}
+
+body.dark .analytics-header h3 {
+  color: #f8fafc;
+}
+
+.analytics-subtitle {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, #64748b);
+}
+
+body.dark .analytics-subtitle {
+  color: #94a3b8;
+}
+
+.analytics-total-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+  color: white;
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+  line-height: 1.1;
+}
+
+.total-num {
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.total-lbl {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.9;
+}
+
+/* Primary Metrics Grid */
+.analytics-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  background: var(--color-background-soft, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+body.dark .stat-card {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.stat-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-text-secondary, #64748b);
+}
+
+body.dark .stat-card-header {
+  color: #cbd5e1;
+}
+
+.stat-title {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.stat-count-label {
+  color: var(--color-heading, #0f172a);
+}
+
+body.dark .stat-count-label {
+  color: #f1f5f9;
+}
+
+/* Gender Ratio Bar */
+.gender-ratio-bar {
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  overflow: hidden;
+  background: #e2e8f0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: white;
+}
+
+.bar-male {
+  background: #2563eb;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: white;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: width 0.3s ease;
 }
 
-.summary-stat-box .stat-info {
+.bar-female {
+  background: #db2777;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width 0.3s ease;
+}
+
+/* Compliance Bar */
+.compliance-progress-bar {
+  height: 20px;
+  border-radius: 10px;
+  background: #e2e8f0;
+  overflow: hidden;
+  position: relative;
+}
+
+body.dark .compliance-progress-bar {
+  background: #334155;
+}
+
+.progress-fill {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 800;
+  transition: width 0.3s ease;
+}
+
+/* Tags */
+.tags-flex {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.analytics-tag {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.tag-4ps { background: #fae8ff; color: #86198f; }
+.tag-transferee { background: #dbeafe; color: #1e40af; }
+.tag-returnee { background: #fef3c7; color: #92400e; }
+
+body.dark .tag-4ps { background: rgba(134, 25, 143, 0.2); color: #f0abfc; }
+body.dark .tag-transferee { background: rgba(30, 64, 175, 0.2); color: #93c5fd; }
+body.dark .tag-returnee { background: rgba(245, 158, 11, 0.2); color: #fde047; }
+
+/* Grade Breakdown */
+.grade-breakdown-section {
   display: flex;
   flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid var(--color-border-subtle, #f1f5f9);
+  padding-top: 0.75rem;
 }
 
-.summary-stat-box .stat-value {
-  font-size: 1.15rem;
+body.dark .grade-breakdown-section {
+  border-top-color: #334155;
+}
+
+.breakdown-title {
+  font-size: 0.75rem;
   font-weight: 700;
-  color: var(--text-main, #111827);
+  color: var(--color-text-secondary, #64748b);
+  text-transform: uppercase;
 }
 
-.summary-stat-box .stat-label {
+body.dark .breakdown-title {
+  color: #94a3b8;
+}
+
+.grade-pill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+  gap: 0.5rem;
+}
+
+.grade-stat-pill {
+  background: var(--color-background-soft, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+body.dark .grade-stat-pill {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.grade-name {
   font-size: 0.7rem;
-  color: var(--text-muted, #6b7280);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--color-text-secondary, #64748b);
+}
+
+body.dark .grade-name {
+  color: #94a3b8;
+}
+
+.grade-val {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--color-heading, #0f172a);
+}
+
+body.dark .grade-val {
+  color: #f1f5f9;
+}
+
+.grade-sub {
+  font-size: 0.65rem;
+  color: var(--color-text-secondary, #64748b);
+}
+
+body.dark .grade-sub {
+  color: #94a3b8;
 }

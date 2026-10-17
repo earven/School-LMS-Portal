@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext.jsx';
 import { 
@@ -112,6 +112,14 @@ export const NotificationProvider = ({ children }) => {
       snap.docs.forEach(d => {
         batch.delete(d.ref);
       });
+
+      // Delete linked calendar events
+      const eq = query(collection(db, 'events'), where('announcementGroupId', '==', groupId));
+      const esnap = await getDocs(eq);
+      esnap.docs.forEach(d => {
+        batch.delete(d.ref);
+      });
+
       await batch.commit();
     } catch (e) {
       console.error("Error deleting announcement group:", e);
@@ -163,7 +171,7 @@ export const NotificationProvider = ({ children }) => {
         });
       });
       await batch.commit();
-      return true;
+      return { success: true, groupId };
     } catch (e) {
       console.error("Error sending notification:", e);
       throw e;
@@ -195,21 +203,23 @@ export const NotificationProvider = ({ children }) => {
     }
   };
 
+  const contextValue = useMemo(() => ({
+    notifications, 
+    unreadCount, 
+    loading, 
+    markAsRead, 
+    markAllAsRead,
+    deleteNotification,
+    deleteAnnouncementGroup,
+    sendNotification,
+    getAnnouncementStats,
+    selectedNotification,
+    setSelectedNotification,
+    acknowledgeNotification
+  }), [notifications, unreadCount, loading, selectedNotification]);
+
   return (
-    <NotificationContext.Provider value={{ 
-      notifications, 
-      unreadCount, 
-      loading, 
-      markAsRead, 
-      markAllAsRead,
-      deleteNotification,
-      deleteAnnouncementGroup,
-      sendNotification,
-      getAnnouncementStats,
-      selectedNotification,
-      setSelectedNotification,
-      acknowledgeNotification
-    }}>
+    <NotificationContext.Provider value={contextValue}>
       {children}
     </NotificationContext.Provider>
   );

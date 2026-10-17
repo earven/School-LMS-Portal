@@ -1,0 +1,10 @@
+# cloudflare-worker/wrangler.toml
+
+name = "school-lms-memo-bot"
+main = "memo-bot.js"
+compatibility_date = "2026-06-11"
+
+# KV namespace to store conversation session state
+[[kv_namespaces]]
+binding = "BOT_SESSIONS"
+id = "866ecc9e3b864bdba0259df2ded18fda" # Will be generated when running 'wrangler kv:namespace create BOT_SESSIONS'

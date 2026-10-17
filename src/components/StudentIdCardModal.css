@@ -1,0 +1,716 @@
+/* StudentIdCardModal.css */
+
+.id-card-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.id-card-modal-content {
+  background: var(--color-background, #ffffff);
+  border-radius: 14px;
+  width: 96vw;
+  max-width: 1100px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--color-border, #e2e8f0);
+  overflow: hidden;
+}
+
+body.dark .id-card-modal-content {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+/* Modal Header */
+.id-card-modal-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--color-background, #ffffff);
+}
+
+body.dark .id-card-modal-header {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.id-card-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--color-heading, #0f172a);
+}
+
+body.dark .id-card-modal-header h2 {
+  color: #f8fafc;
+}
+
+.id-modal-subtitle {
+  margin: 0.15rem 0 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, #64748b);
+}
+
+body.dark .id-modal-subtitle {
+  color: #94a3b8;
+}
+
+.id-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Mode Selector */
+.id-mode-selector {
+  display: inline-flex;
+  background: var(--color-background-soft, #f1f5f9);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  gap: 2px;
+}
+
+body.dark .id-mode-selector {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.btn-mode-toggle {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text-secondary, #64748b);
+  transition: all 0.15s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.btn-mode-toggle.active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+}
+
+body.dark .btn-mode-toggle.active {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.btn-print-ids {
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Print Guidance Banner */
+.id-print-guidance-banner {
+  padding: 0.6rem 1.5rem;
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+}
+
+body.dark .id-print-guidance-banner {
+  background: rgba(30, 58, 138, 0.25);
+  border-bottom-color: rgba(59, 130, 246, 0.3);
+}
+
+.guidance-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #1e40af;
+}
+
+body.dark .guidance-content {
+  color: #93c5fd;
+}
+
+.guidance-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.guidance-content p {
+  margin: 0.15rem 0 0 0;
+  color: #334155;
+}
+
+body.dark .guidance-content p {
+  color: #cbd5e1;
+}
+
+/* ID Cards Preview Container */
+.id-cards-print-container {
+  padding: 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  background: #f8fafc;
+  flex: 1;
+}
+
+body.dark .id-cards-print-container {
+  background: #090d16;
+}
+
+.id-empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+/* Sheet Page Wrapper in Preview */
+.id-sheet-page-wrapper {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+body.dark .id-sheet-page-wrapper {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+.id-sheet-header-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px dashed #cbd5e1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+body.dark .id-sheet-header-label {
+  color: #94a3b8;
+  border-bottom-color: #334155;
+}
+
+/* Page Grid (2 cols x 4 rows) */
+.id-print-page {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  justify-items: center;
+}
+
+/* FOLD & LAMINATE GRID */
+.id-fold-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.id-fold-pair {
+  display: inline-flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  padding: 0.5rem;
+  gap: 0.75rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+body.dark .id-fold-pair {
+  background: #0f172a;
+  border-color: #475569;
+}
+
+.id-fold-crease {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  padding: 0 0.25rem;
+  user-select: none;
+}
+
+/* ID CARD PHYSICAL DIMENSION STYLES (CR80 ratio ~ 85.6mm x 54mm) */
+.id-card {
+  width: 340px;
+  height: 215px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-sizing: border-box;
+  color: #0f172a;
+  flex-shrink: 0;
+}
+
+.id-card-placeholder {
+  visibility: hidden;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ID FRONT */
+.id-card-front .id-header {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+  color: #ffffff;
+  padding: 0.35rem 0.5rem 0.25rem 0.5rem;
+  border-bottom: 2px solid #f59e0b;
+}
+
+.id-header-logos {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.id-school-logo,
+.id-logo-placeholder {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.id-header-text {
+  flex: 1;
+  line-height: 1.1;
+}
+
+.id-republic {
+  font-size: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.9;
+}
+
+.id-deped {
+  font-size: 6.5px;
+  font-weight: bold;
+}
+
+.id-division {
+  font-size: 6px;
+  opacity: 0.9;
+}
+
+.id-school-name {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #fef08a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 230px;
+}
+
+.id-school-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 6px;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+}
+
+.id-front-body {
+  padding: 0.35rem 0.5rem;
+  display: flex;
+  gap: 0.45rem;
+  flex: 1;
+  align-items: center;
+}
+
+.id-photo-wrapper {
+  width: 60px;
+  height: 70px;
+  border: 1.5px solid #2563eb;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.id-student-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.id-photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: #e2e8f0;
+}
+
+.id-avatar-icon {
+  font-size: 1.7rem;
+  color: #94a3b8;
+}
+
+.id-student-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.id-student-name {
+  font-size: 10px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.15;
+  margin-bottom: 0.1rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.id-info-line {
+  font-size: 6.8px;
+  display: flex;
+  gap: 0.2rem;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.id-label {
+  font-weight: 700;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.id-value {
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.id-lrn-val {
+  font-family: monospace;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #1e3a8a;
+}
+
+.id-qr-box {
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.id-qr-img {
+  width: 48px;
+  height: 48px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 1px;
+}
+
+.id-barcode-text {
+  font-size: 4.8px;
+  font-weight: 800;
+  color: #64748b;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.id-footer-stripe {
+  background: #1e3a8a;
+  color: #ffffff;
+  text-align: center;
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.15rem;
+  margin-top: auto;
+}
+
+/* ID BACK */
+.id-card-back {
+  border: 1px solid #cbd5e1;
+}
+
+.id-back-header {
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 6.5px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.08em;
+  padding: 0.25rem 0.5rem;
+}
+
+.id-back-body {
+  padding: 0.4rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.id-back-info-row {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 6.8px;
+  margin-bottom: 0.15rem;
+  line-height: 1.2;
+}
+
+.id-back-info-row strong {
+  color: #475569;
+  flex-shrink: 0;
+  width: 82px;
+}
+
+.id-back-info-row span {
+  color: #0f172a;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.id-address-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+
+.id-terms {
+  font-size: 5.5px;
+  color: #64748b;
+  line-height: 1.2;
+  margin-top: 0.2rem;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 0.2rem;
+}
+
+.id-terms p {
+  margin: 0.1rem 0;
+}
+
+.id-signatures {
+  display: flex;
+  justify-content: space-around;
+  margin-top: auto;
+  padding-top: 0.2rem;
+}
+
+.id-sig-col {
+  text-align: center;
+  font-size: 6px;
+  font-weight: bold;
+  color: #475569;
+  width: 95px;
+}
+
+.id-sig-line {
+  border-bottom: 1px solid #000000;
+  margin-bottom: 2px;
+  height: 12px;
+}
+
+.id-back-footer {
+  background: #f1f5f9;
+  color: #64748b;
+  text-align: center;
+  font-size: 5.5px;
+  font-weight: bold;
+  padding: 0.15rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* =========================================================
+   PRINT MEDIA QUERIES (Exact 8-per-page grid layout on A4 / Letter)
+   ========================================================= */
+@media print {
+  @page {
+    size: auto;
+    margin: 8mm auto;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+  
+  .id-card-modal-overlay,
+  .id-card-modal-content,
+  .id-cards-print-container,
+  .id-cards-print-container * {
+    visibility: visible;
+  }
+
+  .id-card-modal-overlay {
+    position: static !important;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    height: auto !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .id-card-modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    width: 100% !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .id-cards-print-container {
+    padding: 0 !important;
+    background: transparent !important;
+    display: block !important;
+    gap: 0 !important;
+  }
+
+  .id-sheet-page-wrapper {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Standard 8-card sheet page (2 cols x 4 rows) */
+  .id-print-page {
+    display: grid !important;
+    grid-template-columns: repeat(2, 85.6mm) !important;
+    grid-template-rows: repeat(4, 54mm) !important;
+    gap: 3.5mm 6mm !important;
+    justify-content: center !important;
+    align-content: center !important;
+    width: 177.2mm !important;
+    margin: 0 auto !important;
+    padding: 4mm 0 !important;
+    box-sizing: border-box !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    height: 245mm !important;
+  }
+
+  .id-sheet-page-wrapper:last-child .id-print-page {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .id-card {
+    width: 85.6mm !important;
+    height: 54mm !important;
+    border: 0.8px solid #000000 !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }
+
+  .id-card-placeholder {
+    visibility: hidden !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  /* Fold & Laminate in print mode */
+  .id-fold-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 4mm !important;
+  }
+
+  .id-fold-pair {
+    display: inline-flex !important;
+    border: 0.8px dashed #000000 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  .id-fold-crease {
+    width: 0 !important;
+    border-right: 0.8px dashed #000000 !important;
+  }
+
+  .id-fold-crease span {
+    display: none !important;
+  }
+}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { db } from '../firebase';
 import { 
@@ -86,36 +86,40 @@ export const SubmissionProvider = ({ children }) => {
 
       // Trigger notifications to target teachers
       try {
-        const usersSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'teacher')));
-        const allTeachers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        let targetTeachers = [];
+        let recipientIds = [];
+        
         if (Array.isArray(taskData.recipients)) {
-          targetTeachers = allTeachers.filter(t => taskData.recipients.includes(t.id));
+          // If already an array of UIDs, use it directly (improves speed and reliability)
+          recipientIds = taskData.recipients;
         } else if (taskData.recipients === 'all') {
-          targetTeachers = allTeachers;
+          const usersSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['teacher', 'admin', 'system_admin'])));
+          recipientIds = usersSnap.docs.map(d => d.id).filter(Boolean);
         } else if (taskData.recipients === 'advisers' || taskData.recipients === 'non-advisers') {
+          const usersSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['teacher', 'admin', 'system_admin'])));
+          const allTeachers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
           const sectionsSnap = await getDocs(collection(db, 'sections'));
           const adviserIds = new Set(sectionsSnap.docs.map(s => s.data().adviserId).filter(Boolean));
           if (taskData.recipients === 'advisers') {
-            targetTeachers = allTeachers.filter(t => adviserIds.has(t.id));
+            recipientIds = allTeachers.filter(t => adviserIds.has(t.id)).map(t => t.id);
           } else {
-            targetTeachers = allTeachers.filter(t => !adviserIds.has(t.id));
+            recipientIds = allTeachers.filter(t => !adviserIds.has(t.id)).map(t => t.id);
           }
         } else if (typeof taskData.recipients === 'string' && taskData.recipients.startsWith('subject:')) {
           const targetSub = taskData.recipients.replace('subject:', '');
-          targetTeachers = allTeachers.filter(t => (t.subjects || []).includes(targetSub));
-        } else {
+          const usersSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['teacher', 'admin', 'system_admin'])));
+          const allTeachers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          recipientIds = allTeachers.filter(t => (t.subjects || []).includes(targetSub)).map(t => t.id);
+        } else if (typeof taskData.recipients === 'string') {
           // Individual UID
-          targetTeachers = allTeachers.filter(t => t.id === taskData.recipients);
+          recipientIds = [taskData.recipients];
         }
 
-        if (targetTeachers.length > 0) {
+        if (recipientIds.length > 0) {
           const batch = writeBatch(db);
-          targetTeachers.forEach(t => {
+          recipientIds.forEach(uid => {
             const notifRef = doc(collection(db, 'notifications'));
             batch.set(notifRef, {
-              recipientId: t.id,
+              recipientId: uid,
               senderId: user.uid,
               senderName: user.fullName || 'Admin',
               title: 'New Submission Request',
@@ -127,6 +131,7 @@ export const SubmissionProvider = ({ children }) => {
             });
           });
           await batch.commit();
+          console.log(`Successfully triggered ${recipientIds.length} notifications.`);
         }
       } catch (notifErr) {
         console.error('Error triggering task notifications:', notifErr);
@@ -247,27 +252,96 @@ export const SubmissionProvider = ({ children }) => {
     }
   };
 
+  // Admin: Send reminder notification to pending teachers
+  const sendTaskReminder = async (taskId, recipientIds) => {
+    if (!recipientIds || recipientIds.length === 0) return 0;
+    try {
+      const taskSnap = await getDoc(doc(db, 'submissions', taskId));
+      const taskTitle = taskSnap.exists() ? taskSnap.data().title : 'Submission Task';
+      const deadline = taskSnap.exists() ? taskSnap.data().deadline : '';
+
+      const batch = writeBatch(db);
+      recipientIds.forEach(uid => {
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+          recipientId: uid,
+          senderId: user.uid,
+          senderName: user.fullName || 'Admin',
+          title: `Reminder: ${taskTitle}`,
+          message: `Please submit your report for "${taskTitle}". ${deadline ? `Deadline: ${deadline}` : ''}`,
+          type: 'task_reminder',
+          read: false,
+          link: '/teacher-tools/submissions',
+          createdAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+      return recipientIds.length;
+    } catch (e) {
+      console.error('Error sending task reminders:', e);
+      throw e;
+    }
+  };
+
+  // Admin: Batch review responses
+  const batchReviewResponses = async (responseIds, reviewData) => {
+    if (!responseIds || responseIds.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      responseIds.forEach(id => {
+        const ref = doc(db, 'submission_responses', id);
+        batch.update(ref, {
+          status: reviewData.status || 'Approved',
+          feedback: reviewData.feedback || '',
+          reviewedAt: serverTimestamp(),
+          reviewedBy: user.uid
+        });
+      });
+      await batch.commit();
+    } catch (e) {
+      console.error('Error batch reviewing responses:', e);
+      throw e;
+    }
+  };
+
   const deleteTask = async (taskId) => {
     try {
       await deleteDoc(doc(db, 'submissions', taskId));
-      // Optionally delete all responses associated with this task
     } catch (e) {
       console.error('Error deleting task:', e);
       throw e;
     }
   };
 
+  const toggleArchiveTask = async (taskId, isArchived = true) => {
+    try {
+      await updateDoc(doc(db, 'submissions', taskId), {
+        isArchived: isArchived,
+        archivedAt: isArchived ? serverTimestamp() : null
+      });
+      console.log(`Task ${taskId} archived status set to:`, isArchived);
+    } catch (e) {
+      console.error('Error toggling archive status for task:', e);
+      throw e;
+    }
+  };
+
+  const contextValue = useMemo(() => ({
+    tasks, 
+    responses, 
+    loading, 
+    createTask, 
+    updateTask,
+    submitResponse, 
+    deleteTask,
+    toggleArchiveTask,
+    reviewResponse,
+    batchReviewResponses,
+    sendTaskReminder
+  }), [tasks, responses, loading, user]);
+
   return (
-    <SubmissionContext.Provider value={{ 
-      tasks, 
-      responses, 
-      loading, 
-      createTask, 
-      updateTask,
-      submitResponse, 
-      deleteTask,
-      reviewResponse
-    }}>
+    <SubmissionContext.Provider value={contextValue}>
       {children}
     </SubmissionContext.Provider>
   );

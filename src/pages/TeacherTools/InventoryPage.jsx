@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { usePersonnel } from '../../context/PersonnelContext';
@@ -119,10 +119,10 @@ const InventoryPage = () => {
 
   const toggleGroup = (key) => setExpandedGroups(prev => ({...prev, [key]: !prev[key]}));
 
-  const getTeacherName = (uid) => {
+  const getTeacherName = useCallback((uid) => {
     const teacher = teachers.find(t => t.id === uid);
     return teacher ? (teacher.fullName || teacher.username) : 'Unknown';
-  };
+  }, [teachers]);
 
   const groupedAssignments = useMemo(() => {
     if (!isAdmin || filterTeacher !== 'all') return null;
@@ -144,7 +144,7 @@ const InventoryPage = () => {
     });
     
     return Object.values(groups).sort((a, b) => a.teacherName.localeCompare(b.teacherName));
-  }, [displayAssignments, isAdmin, filterTeacher, teachers]);
+  }, [displayAssignments, isAdmin, filterTeacher, getTeacherName]);
 
   // --- Handlers for Master Modal ---
   const handleOpenMasterModal = (item = null) => {

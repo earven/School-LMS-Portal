@@ -3,60 +3,87 @@ import { useSections } from "../../context/SectionContext";
 import { usePersonnel } from '../../context/PersonnelContext';
 import { useStudents } from '../../context/StudentContext';
 import { useAuth } from '../../context/AuthContext';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSettings } from '../../context/SettingsContext';
+import { useSearchParams } from 'react-router-dom';
+import { db } from '../../firebase';
+import { collection, onSnapshot, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import EnrolmentSummaryWidget from '../../components/EnrolmentSummaryWidget';
+import BeefFormModal from '../../components/BeefFormModal';
+import { printQuickCountReport, exportQuickCountToCSV } from '../../utils/beefGenerator';
+
+import SectionsOverviewMatrix from './SectionsComponents/SectionsOverviewMatrix';
+import SectionsCardsGrid from './SectionsComponents/SectionsCardsGrid';
+import SectionAddDrawer from './SectionsComponents/SectionAddDrawer';
+import SectionDetailDrawer from './SectionsComponents/SectionDetailDrawer';
+
 import './SectionsPage.css';
 
 const SectionsPage = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
+  const { settings } = useSettings();
   const { sections, loading, error, addSection, updateSection, deleteSection } = useSections();
   const { personnel } = usePersonnel();
   const { students, addStudent, addBulkStudents, deleteStudent } = useStudents();
   const [searchParams] = useSearchParams();
   
-  // ... rest of state ...
   const [viewMode, setViewMode] = useState(searchParams.get('view') || 'overview'); // 'overview', 'JHS', 'SHS'
   const [sectionStatus, setSectionStatus] = useState('active'); // 'active', 'archived'
+
+  // Section Filters
+  const [sectionSearchQuery, setSectionSearchQuery] = useState('');
+  const [selectedGradeFilter, setSelectedGradeFilter] = useState('All');
+  const [selectedStrandFilter, setSelectedStrandFilter] = useState('All');
 
   useEffect(() => {
     const view = searchParams.get('view');
     if (view && ['overview', 'JHS', 'SHS'].includes(view)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setViewMode(view);
     }
-  }, [searchParams]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState('details'); 
-  const [selectedSection, setSelectedSection] = useState(null);
-  
-  const [newSectionForm, setNewSectionForm] = useState({
-    name: '',
-    gradeLevel: 'Grade 7',
-    adviserId: '',
-    adviserName: '',
-    yearCreated: new Date().getFullYear().toString(),
-    isActive: true,
-  });
-  const [editSectionForm, setEditSectionForm] = useState(null);
-  const [newStudentForm, setNewStudentForm] = useState({
-    id: '',
-    lastName: '',
-    firstName: '',
-    middleName: '',
-    extension: '',
-    gender: 'Male',
-    address: '',
-    gradeLevel: '',
-    sectionId: '',
-    is4Ps: false,
-    nutritionalStatus: 'Normal',
-  });
-  const [isAddingStudent, setIsAddingStudent] = useState(false);
+    const secId = searchParams.get('sectionId');
+    if (secId && sections.length > 0) {
+      const target = sections.find(s => s.id === secId);
+      if (target) {
+        setSelectedSection(target);
+        const getGradeNum = (str) => (str || '').toString().replace(/\D/g, '');
+        const gNum = getGradeNum(target.gradeLevel);
+        if (['11', '12'].includes(gNum)) {
+          setViewMode('SHS');
+        } else if (['7', '8', '9', '10'].includes(gNum)) {
+          setViewMode('JHS');
+        }
+      }
+    }
+  }, [searchParams, sections]);
 
-  const availableTeachers = personnel.filter(p => p.role === 'teacher');
+  const [isAdding, setIsAdding] = useState(false);
+  const [selectedSection, setSelectedSection] = useState(null);
+  const [drawerInitialTab, setDrawerInitialTab] = useState('details');
+
+  // BEEF Modal
+  const [beefStudent, setBeefStudent] = useState(null);
+
+  // Incoming Enrollees state from enrolment_students
+  const [enrolmentQueue, setEnrolmentQueue] = useState([]);
+  const [isIntakeProcessing, setIsIntakeProcessing] = useState(false);
+
+  const availableTeachers = personnel.filter(p => p.role === 'teacher' || p.position);
   const isAdmin = ['admin', 'system_admin'].includes(user?.role);
 
+  // Fetch live enrolment queue
+  useEffect(() => {
+    const colRef = collection(db, 'enrolment_students');
+    const unsubscribe = onSnapshot(colRef, (snapshot) => {
+      const list = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        lrn: d.data().lrn || d.id
+      }));
+      setEnrolmentQueue(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Filtered Sections
   const displayedSections = useMemo(() => {
     let filtered = isAdmin ? sections : sections.filter(s => s.adviserId === user?.uid);
     const getGradeNum = (str) => (str || '').toString().replace(/\D/g, '');
@@ -69,142 +96,77 @@ const SectionsPage = () => {
     
     if (viewMode === 'JHS') {
       const jhsNums = ['7', '8', '9', '10'];
-      return filtered.filter(s => jhsNums.includes(getGradeNum(s.gradeLevel)));
+      filtered = filtered.filter(s => jhsNums.includes(getGradeNum(s.gradeLevel)));
     } else if (viewMode === 'SHS') {
       const shsNums = ['11', '12'];
-      return filtered.filter(s => shsNums.includes(getGradeNum(s.gradeLevel)));
+      filtered = filtered.filter(s => shsNums.includes(getGradeNum(s.gradeLevel)));
     }
-    return filtered;
-  }, [sections, isAdmin, user, viewMode, sectionStatus]);
 
-  // Statistics for Overview
+    if (selectedGradeFilter !== 'All') {
+      filtered = filtered.filter(s => s.gradeLevel === selectedGradeFilter);
+    }
+
+    if (viewMode === 'SHS' && selectedStrandFilter !== 'All') {
+      const strandQ = selectedStrandFilter.toUpperCase();
+      filtered = filtered.filter(s => {
+        const sStrand = (s.trackStrand || '').toUpperCase();
+        return sStrand.includes(strandQ);
+      });
+    }
+
+    if (sectionSearchQuery.trim()) {
+      const q = sectionSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter(s => 
+        (s.name || '').toLowerCase().includes(q) ||
+        (s.adviserName || '').toLowerCase().includes(q) ||
+        (s.room || '').toLowerCase().includes(q) ||
+        (s.trackStrand || '').toLowerCase().includes(q) ||
+        (s.gradeLevel || '').toLowerCase().includes(q)
+      );
+    }
+
+    return filtered;
+  }, [sections, isAdmin, user, viewMode, sectionStatus, selectedGradeFilter, selectedStrandFilter, sectionSearchQuery]);
+
+  // Section stats for navigation counters
   const stats = useMemo(() => {
     const getGradeNum = (str) => (str || '').toString().replace(/\D/g, '');
-    
     const jhsNums = ['7', '8', '9', '10'];
     const shsNums = ['11', '12'];
 
     const activeSections = sections.filter(s => s.isActive);
-    const archivedSections = sections.filter(s => !s.isActive);
-
     const jhsSections = activeSections.filter(s => jhsNums.includes(getGradeNum(s.gradeLevel)));
     const shsSections = activeSections.filter(s => shsNums.includes(getGradeNum(s.gradeLevel)));
 
-    const activeStudentIds = students.filter(s => activeSections.some(sec => sec.id === s.sectionId));
-    const archivedStudents = students.filter(s => archivedSections.some(sec => sec.id === s.sectionId));
-
-    const jhsStudents = activeStudentIds.filter(s => jhsNums.includes(getGradeNum(s.gradeLevel)));
-    const shsStudents = activeStudentIds.filter(s => shsNums.includes(getGradeNum(s.gradeLevel)));
-
     return {
-      total: activeStudentIds.length,
-      jhs: {
-        students: jhsStudents.length,
-        sections: jhsSections.length,
-        male: jhsStudents.filter(s => s.gender === 'Male').length,
-        female: jhsStudents.filter(s => s.gender === 'Female').length
-      },
-      shs: {
-        students: shsStudents.length,
-        sections: shsSections.length,
-        male: shsStudents.filter(s => s.gender === 'Male').length,
-        female: shsStudents.filter(s => s.gender === 'Female').length
-      },
-      archived: {
-        students: archivedStudents.length,
-        sections: archivedSections.length,
-        male: archivedStudents.filter(s => s.gender === 'Male').length,
-        female: archivedStudents.filter(s => s.gender === 'Female').length
-      }
+      jhs: { sections: jhsSections.length },
+      shs: { sections: shsSections.length }
     };
-  }, [sections, students]);
+  }, [sections]);
 
   const sectionStudents = useMemo(() => {
     if (!selectedSection) return [];
     return students.filter(s => s.sectionId === selectedSection.id);
   }, [students, selectedSection]);
 
-  const handleNewSectionChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setNewSectionForm(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
-  const handleEditSectionChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setEditSectionForm(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
-  const handleNewStudentChange = (e) => {
-    const { name, value, type, checked } = e.target;
-
-    // Validation for LRN (id) - digits only and max 12
-    if (name === 'id') {
-      const numericValue = value.replace(/\D/g, '');
-      if (numericValue.length > 12) return;
-      setNewStudentForm(prev => ({
-        ...prev,
-        id: numericValue
-      }));
-      return;
-    }
-
-    setNewStudentForm(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
-  const handleAdviserSelect = (e, formType) => {
-    const teacherId = e.target.value;
-    const teacher = availableTeachers.find(t => t.id === teacherId);
-    if (formType === 'new') {
-      setNewSectionForm(prev => ({
-        ...prev,
-        adviserId: teacher ? teacher.id : '',
-        adviserName: teacher ? teacher.fullName : '',
-      }));
-    } else {
-      setEditSectionForm(prev => ({
-        ...prev,
-        adviserId: teacher ? teacher.id : '',
-        adviserName: teacher ? teacher.fullName : '',
-      }));
-    }
-  };
-
-  const handleAddSection = async () => {
-    if (!newSectionForm.name || !newSectionForm.gradeLevel) {
-      alert('Section Name and Grade Level are required.');
-      return;
-    }
-    await addSection(newSectionForm);
-    setIsAdding(false);
-    setNewSectionForm({
-      name: '',
-      gradeLevel: 'Grade 7',
-      adviserId: '',
-      adviserName: '',
-      yearCreated: new Date().getFullYear().toString(),
-      isActive: true,
+  const sectionIntakeQueue = useMemo(() => {
+    if (!selectedSection) return [];
+    const secGrade = (selectedSection.gradeLevel || '').toLowerCase();
+    return enrolmentQueue.filter(e => {
+      const enrGrade = (e.gradeLevel || '').toLowerCase();
+      const notSectionedYet = !e.sectionId || e.sectionId === selectedSection.id;
+      return enrGrade === secGrade && notSectionedYet;
     });
+  }, [enrolmentQueue, selectedSection]);
+
+  const handleAddSection = async (formData) => {
+    await addSection(formData);
     alert('Section added successfully!');
   };
 
-  const handleUpdateSection = async () => {
-    if (!editSectionForm.name || !editSectionForm.gradeLevel) {
-      alert('Section Name and Grade Level are required.');
-      return;
-    }
-    await updateSection(editSectionForm);
-    setIsEditing(false);
-    setSelectedSection(editSectionForm);
-    alert('Section updated successfully!');
+  const handleUpdateSection = async (formData) => {
+    await updateSection(formData);
+    setSelectedSection(formData);
   };
 
   const handleDeleteSection = async (id) => {
@@ -215,681 +177,332 @@ const SectionsPage = () => {
     }
   };
 
-  const handleAddStudentToSection = async () => {
-    if (!newStudentForm.id || !newStudentForm.lastName || !newStudentForm.firstName) {
-      alert('LRN, Last Name, and First Name are required.');
-      return;
-    }
-
-    if (newStudentForm.id.length !== 12) {
-      alert('LRN must be exactly 12 digits.');
-      return;
-    }
-
-    const studentData = {
-      ...newStudentForm,
-      gradeLevel: selectedSection?.gradeLevel || '',
-      sectionId: selectedSection?.id || '',
-    };
+  const handleAddStudentToSection = async (studentData) => {
     await addStudent(studentData);
-    setIsAddingStudent(false);
-    setNewStudentForm({
-      id: '',
-      lastName: '',
-      firstName: '',
-      middleName: '',
-      extension: '',
-      gender: 'Male',
-      address: '',
-      gradeLevel: '',
-      sectionId: '',
-      is4Ps: false,
-      nutritionalStatus: 'Normal',
-    });
-    alert('Student enrolled successfully!');
   };
 
-  const handleBulkEnroll = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const handleBulkEnrollStudents = async (studentsPayload) => {
+    await addBulkStudents(studentsPayload);
+  };
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File size exceeds 5MB limit. Please upload a smaller CSV file.");
-      event.target.value = null;
-      return;
+  const handleDeleteStudent = async (id) => {
+    if (window.confirm("Are you sure you want to remove this learner from the section?")) {
+      await deleteStudent(id);
     }
+  };
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target.result;
-      // Remove UTF-8 BOM if present
-      const cleanText = text.replace(/^\ufeff/, '');
-      const lines = cleanText.split('\n').filter(line => line.trim() !== '');
-      if (lines.length < 2) {
-        alert('CSV file is empty or only contains headers.');
-        return;
-      }
+  const handleAssignIntakeToSection = async (enrollee) => {
+    if (!selectedSection) return;
+    setIsIntakeProcessing(true);
+    try {
+      const studentData = {
+        id: enrollee.lrn || enrollee.id,
+        lrn: enrollee.lrn || enrollee.id,
+        lastName: enrollee.lastName,
+        firstName: enrollee.firstName,
+        middleName: enrollee.middleName || '',
+        extension: enrollee.extName || '',
+        gender: enrollee.gender || 'Male',
+        birthdate: enrollee.birthdate || '',
+        psaBirthCertNo: enrollee.psaBirthCertNo || '',
+        motherTongue: enrollee.motherTongue || 'Filipino',
+        religion: enrollee.religion || 'Christianity',
+        address: enrollee.address || '',
+        gradeLevel: selectedSection.gradeLevel,
+        sectionId: selectedSection.id,
+        fatherName: enrollee.fatherName || '',
+        motherMaidenName: enrollee.motherMaidenName || '',
+        guardianName: enrollee.guardianName || '',
+        guardianRelationship: enrollee.guardianRelationship || '',
+        contactNumber: enrollee.contactNumber || '',
+        is4Ps: !!enrollee.is4Ps,
+        nutritionalStatus: 'Normal',
+        status: 'Active'
+      };
 
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, '').replace(/[._]/g, '').replace(/ /g, ''));
-      console.log('Detected Enroll Headers:', headers);
+      await addStudent(studentData);
 
-      const studentsToBulkAdd = [];
-      let rejectedCount = 0;
-      let invalidLrnCount = 0;
-      let duplicateCount = 0;
-      const seenInCsv = new Set();
+      await updateDoc(doc(db, 'enrolment_students', enrollee.id), {
+        status: 'Enrolled & Sectioned',
+        sectionId: selectedSection.id,
+        sectionName: selectedSection.name
+      });
 
-      for (let i = 1; i < lines.length; i++) {
-        const values = [];
-        let current = "";
-        let inQuotes = false;
-        const line = lines[i];
+      alert(`Successfully enrolled ${enrollee.firstName} ${enrollee.lastName} into ${selectedSection.name}!`);
+    } catch (err) {
+      alert(`Sectioning failed: ${err.message}`);
+    } finally {
+      setIsIntakeProcessing(false);
+    }
+  };
 
-        for (let char of line) {
-          if (char === '"') inQuotes = !inQuotes;
-          else if (char === ',' && !inQuotes) { values.push(current.trim()); current = ""; }
-          else current += char;
-        }
-        values.push(current.trim());
+  const handleBulkAssignIntake = async (targetIds) => {
+    if (!selectedSection || !targetIds || targetIds.length === 0) return;
+    setIsIntakeProcessing(true);
+    try {
+      const selectedEnrollees = enrolmentQueue.filter(e => targetIds.includes(e.id));
+      
+      const studentsPayload = selectedEnrollees.map(e => ({
+        id: e.lrn || e.id,
+        lrn: e.lrn || e.id,
+        lastName: e.lastName,
+        firstName: e.firstName,
+        middleName: e.middleName || '',
+        extension: e.extName || '',
+        gender: e.gender || 'Male',
+        birthdate: e.birthdate || '',
+        psaBirthCertNo: e.psaBirthCertNo || '',
+        motherTongue: e.motherTongue || 'Filipino',
+        religion: e.religion || 'Christianity',
+        address: e.address || '',
+        gradeLevel: selectedSection.gradeLevel,
+        sectionId: selectedSection.id,
+        fatherName: e.fatherName || '',
+        motherMaidenName: e.motherMaidenName || '',
+        guardianName: e.guardianName || '',
+        guardianRelationship: e.guardianRelationship || '',
+        contactNumber: e.contactNumber || '',
+        is4Ps: !!e.is4Ps,
+        nutritionalStatus: 'Normal',
+        status: 'Active'
+      }));
 
-        const studentData = {};
-        headers.forEach((header, index) => {
-          let value = values[index] || '';
-          if (value.startsWith('"') && value.endsWith('"')) {
-            value = value.substring(1, value.length - 1);
-          }
-          
-          // Map common headers
-          let key = header;
-          if (['id', 'lrn', 'studentid', 'studentnumber', 'stno', 'learnerreferencenumber'].includes(header)) key = 'id';
-          if (['section', 'sectionname', 'sectionid', 'class'].includes(header)) key = 'sectionId';
-          if (['grade', 'gradelevel', 'yearlevel', 'level'].includes(header)) key = 'gradeLevel';
-          if (['lastname', 'surname', 'familyname'].includes(header)) key = 'lastName';
-          if (['firstname', 'givenname'].includes(header)) key = 'firstName';
-          
-          if (key === 'is4ps' || key === '4ps') {
-            studentData['is4Ps'] = value.toLowerCase() === 'yes' || value.toLowerCase() === 'true' || value === '1';
-          } else {
-            studentData[key] = value;
-          }
+      await addBulkStudents(studentsPayload);
+
+      const batch = writeBatch(db);
+      for (const id of targetIds) {
+        const ref = doc(db, 'enrolment_students', id);
+        batch.update(ref, {
+          status: 'Enrolled & Sectioned',
+          sectionId: selectedSection.id,
+          sectionName: selectedSection.name
         });
-
-        const id = studentData.id || '';
-        const lastName = studentData.lastName || studentData.lastname || '';
-        const firstName = studentData.firstName || studentData.firstname || '';
-
-        if (id && lastName && firstName) {
-          // 1. Check for duplicates within the CSV itself
-          if (seenInCsv.has(id)) {
-            duplicateCount++;
-            continue;
-          }
-          seenInCsv.add(id);
-
-          // 2. Check for duplicates in the existing masterlist
-          const exists = students.some(s => s.id === id);
-          if (exists) {
-            duplicateCount++;
-            continue;
-          }
-
-          // VERIFICATION: Only allow students that match the selected section/grade
-          const csvGrade = studentData.gradeLevel || '';
-          const csvSection = studentData.sectionId || '';
-
-          const gradeMatch = !csvGrade || csvGrade.toLowerCase() === selectedSection.gradeLevel.toLowerCase();
-          const sectionMatch = !csvSection || 
-                              csvSection.toLowerCase() === selectedSection.name.toLowerCase() || 
-                              csvSection.toLowerCase() === selectedSection.id.toLowerCase();
-
-          if (!gradeMatch || !sectionMatch) {
-            rejectedCount++;
-            continue;
-          }
-
-          if (id.length !== 12) {
-            invalidLrnCount++;
-            continue;
-          }
-
-          studentsToBulkAdd.push({
-            id: id,
-            lastName: lastName,
-            firstName: firstName,
-            middleName: studentData.middleName || studentData.middlename || '',
-            extension: studentData.extension || '',
-            gender: studentData.gender || 'Male',
-            address: studentData.address || '',
-            gradeLevel: selectedSection.gradeLevel,
-            sectionId: selectedSection.id,
-            is4Ps: !!studentData.is4Ps,
-            nutritionalStatus: studentData.nutritionalStatus || studentData.nutritionalstatus || 'Normal',
-          });
-        }
       }
+      await batch.commit();
 
-      if (studentsToBulkAdd.length > 0) {
-        try {
-          await addBulkStudents(studentsToBulkAdd);
-          // setShowBulkEnroll(false);
-          
-          let message = `Successfully enrolled ${studentsToBulkAdd.length} new learners to ${selectedSection.name}.`;
-          if (duplicateCount > 0) message += `\n\n⚠️ ${duplicateCount} learners were SKIPPED because their LRN is already registered in the system.`;
-          if (rejectedCount > 0) message += `\n\n⛔ ${rejectedCount} learners were rejected (Grade/Section mismatch).`;
-          if (invalidLrnCount > 0) message += `\n\n❌ ${invalidLrnCount} learners had invalid LRNs.`;
-          
-          alert(message);
-        } catch (err) {
-          console.error('Bulk enroll error:', err);
-          alert(`Failed to enroll learners: ${err.message}`);
-        }
-      } else {
-        let message = `No new learners found for ${selectedSection.name}.`;
-        if (duplicateCount > 0) message += `\n\n⚠️ All learners in your CSV are already registered in the system.`;
-        alert(message);
-      }
-      event.target.value = null;
-    };
-    reader.readAsText(file);
-  };
-
-  const downloadStudentTemplate = () => {
-    const headers = ['id', 'lastName', 'firstName', 'middleName', 'extension', 'gender', 'address', 'is4Ps', 'nutritionalStatus'];
-    const csvContent = headers.join(',') + '\n' + '123456789012,"Dela Cruz","Juan","Santos","",Male,"Barangay 1, City",no,Normal';
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.setAttribute('href', URL.createObjectURL(blob));
-    link.setAttribute('download', `student_enrollment_template_${selectedSection?.name || 'section'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleDeleteStudent = async (studentId) => {
-    if (window.confirm('Are you sure you want to remove this student from the section?')) {
-      await deleteStudent(studentId);
+      alert(`Batch enrolled ${selectedEnrollees.length} learners into ${selectedSection.name}!`);
+    } catch (err) {
+      alert(`Bulk enrollment failed: ${err.message}`);
+    } finally {
+      setIsIntakeProcessing(false);
     }
   };
 
-  if (loading) {
-    return <div className="loading-indicator">Loading sections...</div>;
-  }
+  const handleInspectFromOverview = (sec, isShs, tab = 'details') => {
+    setViewMode(isShs ? 'SHS' : 'JHS');
+    setSelectedSection(sec);
+    setDrawerInitialTab(tab);
+  };
 
-  if (error) {
-    return <div className="error-message">{error}</div>;
-  }
+  const handleClearFilters = () => {
+    setSectionSearchQuery('');
+    setSelectedGradeFilter('All');
+    setSelectedStrandFilter('All');
+  };
+
+  const availableGradesForView = viewMode === 'JHS' 
+    ? ['All', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10']
+    : (viewMode === 'SHS' ? ['All', 'Grade 11', 'Grade 12'] : []);
 
   return (
     <div className="sections-container">
+      {/* Top Header */}
       <div className="sections-header">
-        <div className="header-title-row">
-          <div className="title-group">
-            {viewMode !== 'overview' && (
-              <button className="back-btn-minimal" onClick={() => {
-                setViewMode('overview');
-                setSectionStatus('active');
-              }}>
-                ← Back to Overview
-              </button>
-            )}
-            <h1>
-              {viewMode === 'overview' ? 'General Enrollment Data' : 
-               viewMode === 'JHS' ? 'Junior High School Sections' : 
-               'Senior High School Sections'}
-            </h1>
-          </div>
-          {isAdmin && viewMode !== 'overview' && (
-            <button className="add-btn-primary" onClick={() => {
-              setIsAdding(true);
-              setIsEditing(false);
-              setSelectedSection(null);
-            }}>
-              + Add New Section
+        <div>
+          <h1>Section & Class Roster Management</h1>
+          <p className="subtitle">Manage classroom rosters, adviser assignments, room capacity, and live enrollment queues.</p>
+        </div>
+        <div className="header-actions">
+          <button 
+            type="button" 
+            className="action-btn-qc btn-qc-print"
+            onClick={() => printQuickCountReport(enrolmentQueue.length > 0 ? enrolmentQueue : students, settings)}
+            title="Print Official DepEd Enrolment Quick Count Matrix"
+          >
+            📊 Quick Count Matrix
+          </button>
+
+          <button 
+            type="button" 
+            className="action-btn-qc btn-qc-csv"
+            onClick={() => exportQuickCountToCSV(enrolmentQueue.length > 0 ? enrolmentQueue : students, settings)}
+            title="Export Quick Count Matrix to CSV"
+          >
+            📥 Quick Count (CSV)
+          </button>
+
+          {isAdmin && (
+            <button className="primary-btn" onClick={() => setIsAdding(true)}>
+              + Create Section
             </button>
           )}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <p className="header-subtitle" style={{ margin: 0 }}>
-            {viewMode === 'overview' 
-              ? 'A comprehensive summary of the school enrollment status.' 
-              : `Manage ${viewMode === 'JHS' ? 'Junior' : 'Senior'} High School sections and learners.`}
-          </p>
-          {viewMode !== 'overview' && (
-            <div className="tab-bar" style={{ gap: '1rem', borderBottom: 'none' }}>
-              <button 
-                className={`tab-btn ${sectionStatus === 'active' ? 'active' : ''}`}
-                onClick={() => setSectionStatus('active')}
-              >
-                Active Sections
-              </button>
-              <button 
-                className={`tab-btn ${sectionStatus === 'archived' ? 'active' : ''}`}
-                onClick={() => setSectionStatus('archived')}
-              >
-                Archived
-              </button>
-            </div>
-          )}
+      </div>
+
+      {/* View Navigation Bar */}
+      <div className="view-navigation-bar card">
+        <div className="nav-tabs">
+          <button 
+            className={`nav-tab ${viewMode === 'overview' ? 'active' : ''}`}
+            onClick={() => { setViewMode('overview'); setSelectedGradeFilter('All'); setSelectedStrandFilter('All'); }}
+          >
+            📊 Overview
+          </button>
+          <button 
+            className={`nav-tab ${viewMode === 'JHS' ? 'active' : ''}`}
+            onClick={() => { setViewMode('JHS'); setSelectedGradeFilter('All'); setSelectedStrandFilter('All'); }}
+          >
+            📘 Junior High <span className="tab-counter">{stats.jhs.sections}</span>
+          </button>
+          <button 
+            className={`nav-tab ${viewMode === 'SHS' ? 'active' : ''}`}
+            onClick={() => { setViewMode('SHS'); setSelectedGradeFilter('All'); setSelectedStrandFilter('All'); }}
+          >
+            🎓 Senior High <span className="tab-counter">{stats.shs.sections}</span>
+          </button>
+        </div>
+
+        <div className="status-toggle">
+          <button 
+            className={`toggle-btn ${sectionStatus === 'active' ? 'active' : ''}`}
+            onClick={() => setSectionStatus('active')}
+          >
+            Active ({sections.filter(s => s.isActive).length})
+          </button>
+          <button 
+            className={`toggle-btn ${sectionStatus === 'archived' ? 'active' : ''}`}
+            onClick={() => setSectionStatus('archived')}
+          >
+            Archived ({sections.filter(s => !s.isActive).length})
+          </button>
         </div>
       </div>
 
-      <div className="sections-content">
-        {viewMode === 'overview' ? (
-          <div className="overview-container">
-            <div className="summary-banner">
-              <div className="summary-stat">
-                <span className="summary-label">Total School Enrollment</span>
-                <span className="summary-value">{stats.total}</span>
-              </div>
-              <div className="summary-details">
-                <div className="detail-pill">Junior High: {stats.jhs.students}</div>
-                <div className="detail-pill">Senior High: {stats.shs.students}</div>
-                <div className="detail-pill">Male: {stats.jhs.male + stats.shs.male}</div>
-                <div className="detail-pill">Female: {stats.jhs.female + stats.shs.female}</div>
-              </div>
-            </div>
-
-            <div className="level-cards-grid">
-              <div className="level-card jhs" onClick={() => setViewMode('JHS')}>
-                <div className="level-card-icon">🏫</div>
-                <div className="level-card-info">
-                  <h3>Junior High School</h3>
-                  <p className="level-description">Grades 7 to 10</p>
-                  <div className="level-stats">
-                    <div className="l-stat">
-                      <span className="l-val">{stats.jhs.sections}</span>
-                      <span className="l-lab">Sections</span>
-                    </div>
-                    <div className="l-stat">
-                      <span className="l-val">{stats.jhs.students}</span>
-                      <span className="l-lab">Students</span>
-                    </div>
-                  </div>
-                  <div className="gender-ratio">
-                    <div className="ratio-bar">
-                      <div 
-                        className="ratio-fill male" 
-                        style={{ width: `${(stats.jhs.male / (stats.jhs.students || 1)) * 100}%` }}
-                      ></div>
-                    </div>
-                    <div className="ratio-labels">
-                      <span>M: {stats.jhs.male}</span>
-                      <span>F: {stats.jhs.female}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="level-card-footer">
-                  View JHS Sections →
-                </div>
-              </div>
-
-              <div className="level-card shs" onClick={() => setViewMode('SHS')}>
-                <div className="level-card-icon">🎓</div>
-                <div className="level-card-info">
-                  <h3>Senior High School</h3>
-                  <p className="level-description">Grades 11 to 12</p>
-                  <div className="level-stats">
-                    <div className="l-stat">
-                      <span className="l-val">{stats.shs.sections}</span>
-                      <span className="l-lab">Sections</span>
-                    </div>
-                    <div className="l-stat">
-                      <span className="l-val">{stats.shs.students}</span>
-                      <span className="l-lab">Students</span>
-                    </div>
-                  </div>
-                  <div className="gender-ratio">
-                    <div className="ratio-bar">
-                      <div 
-                        className="ratio-fill male" 
-                        style={{ width: `${(stats.shs.male / (stats.shs.students || 1)) * 100}%` }}
-                      ></div>
-                    </div>
-                    <div className="ratio-labels">
-                      <span>M: {stats.shs.male}</span>
-                      <span>F: {stats.shs.female}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="level-card-footer">
-                  View SHS Sections →
-                </div>
-              </div>
-
-            </div>
-          </div>
-        ) : (
-          <div className="sections-grouped-container">
-            {(() => {
-              const sortedGrades = Array.from(new Set(displayedSections.map(s => s?.gradeLevel || 'Unknown')))
-                .sort((a, b) => {
-                  const numA = parseInt(a.replace(/\D/g, ''), 10) || 99;
-                  const numB = parseInt(b.replace(/\D/g, ''), 10) || 99;
-                  return numA - numB;
-                });
-
-              if (sortedGrades.length === 0) {
-                return (
-                  <div className="no-sections" style={{ gridColumn: '1 / -1' }}>
-                    <p>No sections found for this level.</p>
-                  </div>
-                );
-              }
-
-              return sortedGrades.map((gradeLevel) => (
-                <div key={gradeLevel} className="grade-level-group">
-                  <h3 className="grade-level-header">{gradeLevel}</h3>
-                  <div className="sections-list">
-                    {displayedSections.filter(s => (s?.gradeLevel || 'Unknown') === gradeLevel).map((section, index) => {
-                      const sectionStudents = students.filter(s => s.sectionId === section?.id);
-                      const maleCount = sectionStudents.filter(s => s.gender === 'Male').length;
-                      const femaleCount = sectionStudents.filter(s => s.gender === 'Female').length;
-                      const fourPsCount = sectionStudents.filter(s => s.is4Ps).length;
-
-                      return (
-                        <div 
-                          key={section?.id || index} 
-                          className={`section-list-item ${selectedSection?.id === section?.id ? 'selected' : ''}`}
-                          onClick={() => {
-                            if (section) {
-                              navigate(`/students?sectionId=${section.id}`);
-                            }
-                          }}
-                        >
-                          <div className="list-item-status">
-                            <span className={`status-dot ${section?.isActive ? 'active' : 'inactive'}`}></span>
-                          </div>
-                          
-                          <div className="list-item-main">
-                            <h4 className="section-name-compact">{section?.name || 'Unnamed Section'}</h4>
-                            <span className="adviser-name-compact">{section?.adviserName || 'No Adviser'}</span>
-                          </div>
-                          
-                          <div className="list-item-stats">
-                            <span className="compact-stat">👥 {sectionStudents.length}</span>
-                            <span className="compact-stat">M: {maleCount} | F: {femaleCount}</span>
-                            {fourPsCount > 0 && <span className="compact-stat highlight-4ps">4Ps: {fourPsCount}</span>}
-                          </div>
-                          
-                          <div className="list-item-actions">
-                            {isAdmin && (
-                              <button 
-                                className="manage-icon-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedSection(section);
-                                  setEditSectionForm(section);
-                                  setIsEditing(true);
-                                  setIsAdding(false);
-                                  setActiveTab('details');
-                                }}
-                                title="Manage Section"
-                              >
-                                ⚙️
-                              </button>
-                            )}
-                            <span className="view-arrow">→</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ));
-            })()}
-          </div>
-        )}
-
-        {isAdding && isAdmin && (
-          <div className="section-detail-panel">
-            <div className="detail-header">
-              <h2>Add New Section</h2>
-              <button className="close-btn" onClick={() => setIsAdding(false)}>×</button>
-            </div>
-            <div className="detail-body">
-              <div className="form-group">
-                <label>Section Name</label>
-                <input type="text" name="name" value={newSectionForm.name} onChange={handleNewSectionChange} />
-              </div>
-              <div className="form-group">
-                <label>Grade Level</label>
-                <select name="gradeLevel" value={newSectionForm.gradeLevel} onChange={handleNewSectionChange}>
-                  <option value="Grade 7">Grade 7</option>
-                  <option value="Grade 8">Grade 8</option>
-                  <option value="Grade 9">Grade 9</option>
-                  <option value="Grade 10">Grade 10</option>
-                  <option value="Grade 11">Grade 11</option>
-                  <option value="Grade 12">Grade 12</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Adviser</label>
-                <select name="adviserId" value={newSectionForm.adviserId} onChange={(e) => handleAdviserSelect(e, 'new')}>
-                  <option value="">Select an Adviser</option>
-                  {availableTeachers.map(teacher => (
-                    <option key={teacher.id} value={teacher.id}>{teacher.fullName}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Year Created</label>
-                <input type="text" name="yearCreated" value={newSectionForm.yearCreated} onChange={handleNewSectionChange} />
-              </div>
-              <div className="form-group">
-                <label className="checkbox-label">
-                  <input type="checkbox" name="isActive" checked={newSectionForm.isActive} onChange={handleNewSectionChange} />
-                  Is Active
-                </label>
-              </div>
-              <div className="edit-actions">
-                <button className="save-btn" onClick={handleAddSection}>Add Section</button>
-                <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isEditing && selectedSection && (
-          <div className="section-detail-panel">
-            <div className="detail-header">
-              <div className="title-with-tabs">
-                <h2>{selectedSection.name}</h2>
-                <div className="tab-bar">
-                  <button 
-                    className={`tab-btn ${activeTab === 'students' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('students')}
-                  >
-                    Learner List
-                  </button>
-                  <button 
-                    className={`tab-btn ${activeTab === 'details' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('details')}
-                  >
-                    Section Info
-                  </button>
-                </div>
-              </div>
-              <button className="close-btn" onClick={() => setIsEditing(false)}>×</button>
-            </div>
-            
-            <div className="detail-body">
-              {activeTab === 'details' ? (
-                <div className="section-info-form">
-                  <div className="form-group">
-                    <label>Section Name</label>
-                    <input 
-                      type="text" 
-                      name="name" 
-                      value={editSectionForm.name} 
-                      onChange={handleEditSectionChange} 
-                      disabled={!isAdmin}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Grade Level</label>
-                    <select 
-                      name="gradeLevel" 
-                      value={editSectionForm?.gradeLevel || 'Grade 7'} 
-                      onChange={handleEditSectionChange}
-                      disabled={!isAdmin}
-                    >
-                      <option value="Grade 7">Grade 7</option>
-                      <option value="Grade 8">Grade 8</option>
-                      <option value="Grade 9">Grade 9</option>
-                      <option value="Grade 10">Grade 10</option>
-                      <option value="Grade 11">Grade 11</option>
-                      <option value="Grade 12">Grade 12</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Adviser</label>
-                    <select 
-                      name="adviserId" 
-                      value={editSectionForm.adviserId} 
-                      onChange={(e) => handleAdviserSelect(e, 'edit')}
-                      disabled={!isAdmin}
-                    >
-                      <option value="">Select an Adviser</option>
-                      {availableTeachers.map(teacher => (
-                        <option key={teacher.id} value={teacher.id}>{teacher.fullName}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Year Created</label>
-                    <input 
-                      type="text" 
-                      name="yearCreated" 
-                      value={editSectionForm.yearCreated} 
-                      onChange={handleEditSectionChange} 
-                      disabled={!isAdmin}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="checkbox-label">
-                      <input 
-                        type="checkbox" 
-                        name="isActive" 
-                        checked={editSectionForm.isActive} 
-                        onChange={handleEditSectionChange} 
-                        disabled={!isAdmin}
-                      />
-                      Is Active
-                    </label>
-                  </div>
-                  {isAdmin && (
-                    <div className="edit-actions">
-                      <button className="save-btn" onClick={handleUpdateSection}>Save Changes</button>
-                      <button className="delete-btn-outline" onClick={() => handleDeleteSection(selectedSection.id)}>Delete Section</button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="section-students-view">
-                  <div className="student-actions-row">
-                    <h3>Enrolled Learners ({sectionStudents.length})</h3>
-                    <div className="action-buttons">
-                      <button className="export-btn-outline" onClick={downloadStudentTemplate}>
-                        📄 Template
-                      </button>
-                      <label className="add-btn-primary" style={{ cursor: 'pointer', fontSize: '0.85rem' }}>
-                        ⬆️ Bulk Enroll
-                        <input type="file" accept=".csv" onChange={handleBulkEnroll} style={{ display: 'none' }} />
-                      </label>
-                      <button className="add-btn-primary" onClick={() => setIsAddingStudent(!isAddingStudent)}>
-                        {isAddingStudent ? 'Cancel' : '+ Add Learner'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {isAddingStudent && (
-                    <div className="inline-add-student">
-                      <div className="inline-form-row">
-                        <input 
-                          type="text" 
-                          placeholder="LRN" 
-                          name="id" 
-                          value={newStudentForm.id} 
-                          onChange={handleNewStudentChange} 
-                          maxLength={12}
-                        />
-                        <input 
-                          type="text" 
-                          placeholder="Last Name" 
-                          name="lastName" 
-                          value={newStudentForm.lastName} 
-                          onChange={handleNewStudentChange} 
-                        />
-                        <input 
-                          type="text" 
-                          placeholder="First Name" 
-                          name="firstName" 
-                          value={newStudentForm.firstName} 
-                          onChange={handleNewStudentChange} 
-                        />
-                      </div>
-                      <div className="inline-form-row">
-                        <input 
-                          type="text" 
-                          placeholder="Middle Name" 
-                          name="middleName" 
-                          value={newStudentForm.middleName} 
-                          onChange={handleNewStudentChange} 
-                        />
-                        <select name="gender" value={newStudentForm.gender} onChange={handleNewStudentChange}>
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                        </select>
-                        <button className="save-btn" onClick={handleAddStudentToSection}>Enroll</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mini-student-table">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>LRN</th>
-                          <th>Last Name</th>
-                          <th>First Name</th>
-                          <th>Gender</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sectionStudents.length > 0 ? (
-                          [...sectionStudents]
-                            .sort((a, b) => {
-                              if (a.gender !== b.gender) return a.gender === 'Male' ? -1 : 1;
-                              return (a.lastName || '').localeCompare(b.lastName || '');
-                            })
-                            .map(student => (
-                              <tr key={student.id}>
-                                <td>{student.id}</td>
-                                <td style={{ fontWeight: 600 }}>{student.lastName}</td>
-                                <td>{student.firstName}</td>
-                                <td>{student.gender}</td>
-                                <td>
-                                  <button className="text-delete-btn" onClick={() => handleDeleteStudent(student.id)}>Remove</button>
-                                </td>
-                              </tr>
-                            ))
-                        ) : (
-                          <tr>
-                            <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--gray-500)' }}>
-                              No students enrolled in this section yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+      {/* Interactive Filter Suite for JHS / SHS */}
+      {viewMode !== 'overview' && (
+        <div className="sections-filter-bar card">
+          <div className="sec-filter-top-row">
+            <div className="sec-search-box">
+              <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                type="text"
+                placeholder="Search sections by name, adviser, room, strand..."
+                value={sectionSearchQuery}
+                onChange={(e) => setSectionSearchQuery(e.target.value)}
+              />
+              {sectionSearchQuery && (
+                <button className="clear-btn" onClick={() => setSectionSearchQuery('')}>×</button>
               )}
             </div>
+
+            <div className="sec-grade-pills">
+              {availableGradesForView.map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  className={`sec-pill ${selectedGradeFilter === g ? 'active' : ''}`}
+                  onClick={() => setSelectedGradeFilter(g)}
+                >
+                  {g === 'All' ? 'All Grades' : g}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Senior High Strand Filters */}
+          {viewMode === 'SHS' && (
+            <div className="sec-strand-pills">
+              <span className="strand-filter-label">Academic / TVL Strand:</span>
+              {['All', 'STEM', 'ABM', 'HUMSS', 'GAS', 'TVL'].map(st => (
+                <button
+                  key={st}
+                  type="button"
+                  className={`sec-pill strand-pill ${selectedStrandFilter === st ? 'active' : ''}`}
+                  onClick={() => setSelectedStrandFilter(st)}
+                >
+                  {st === 'All' ? 'All Strands' : st}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Overview Analytics Widget */}
+      {viewMode === 'overview' && (
+        <div className="sections-overview-widget">
+          <EnrolmentSummaryWidget />
+        </div>
+      )}
+
+      {/* Content Area */}
+      <div className="sections-content">
+        {viewMode === 'overview' ? (
+          <SectionsOverviewMatrix
+            sections={sections}
+            students={students}
+            loading={loading}
+            onInspectSection={handleInspectFromOverview}
+          />
+        ) : (
+          <SectionsCardsGrid
+            displayedSections={displayedSections}
+            students={students}
+            loading={loading}
+            selectedSection={selectedSection}
+            sectionSearchQuery={sectionSearchQuery}
+            selectedGradeFilter={selectedGradeFilter}
+            selectedStrandFilter={selectedStrandFilter}
+            viewMode={viewMode}
+            onClearFilters={handleClearFilters}
+            onSelectSection={(sec, tab = 'details') => {
+              setSelectedSection(sec);
+              setDrawerInitialTab(tab);
+            }}
+          />
         )}
+
+        {/* Add Section Drawer */}
+        <SectionAddDrawer
+          isOpen={isAdding && isAdmin}
+          onClose={() => setIsAdding(false)}
+          availableTeachers={availableTeachers}
+          onAddSection={handleAddSection}
+        />
+
+        {/* Section Detail & Roster Drawer */}
+        <SectionDetailDrawer
+          isOpen={!!selectedSection}
+          onClose={() => setSelectedSection(null)}
+          section={selectedSection}
+          initialTab={drawerInitialTab}
+          sectionStudents={sectionStudents}
+          sectionIntakeQueue={sectionIntakeQueue}
+          isAdmin={isAdmin}
+          settings={settings}
+          availableTeachers={availableTeachers}
+          onUpdateSection={handleUpdateSection}
+          onDeleteSection={handleDeleteSection}
+          onAddStudent={handleAddStudentToSection}
+          onBulkEnrollStudents={handleBulkEnrollStudents}
+          onDeleteStudent={handleDeleteStudent}
+          onAssignIntake={handleAssignIntakeToSection}
+          onBulkAssignIntake={handleBulkAssignIntake}
+          onTriggerBeef={(student) => setBeefStudent(student)}
+        />
       </div>
+
+      {/* DepEd BEEF Form Print Modal */}
+      {beefStudent && (
+        <BeefFormModal
+          student={beefStudent}
+          settings={settings}
+          onClose={() => setBeefStudent(null)}
+        />
+      )}
     </div>
   );
 };

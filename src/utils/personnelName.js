@@ -1,5 +1,11 @@
 const EXTENSION_PATTERN = /^(Jr\.?|Sr\.?|III|IV|II)$/i;
 
+/** Converts a string to UPPER CASE, safely trimming whitespace. */
+function toUpperCaseTrim(str) {
+  return (str || '').trim().toUpperCase();
+}
+
+
 export function buildFullName({ lastName = '', firstName = '', middleName = '', nameExtension = '' } = {}) {
   const last = (lastName || '').trim();
   const first = (firstName || '').trim();
@@ -99,18 +105,32 @@ export function preparePersonnelForSave(data = {}) {
     (data.middleInitial || '').trim() ||
     (data.nameExtension || '').trim();
 
-  const nameFields = hasNameParts
+  const rawNameFields = hasNameParts
     ? {
-        lastName: (data.lastName || '').trim(),
-        firstName: (data.firstName || '').trim(),
-        middleInitial: (data.middleInitial || '').trim(),
-        nameExtension: (data.nameExtension || '').trim(),
+        lastName: data.lastName,
+        firstName: data.firstName,
+        middleName: data.middleName,
+        middleInitial: data.middleInitial,
+        nameExtension: data.nameExtension,
       }
     : parseLegacyFullName(data.fullName);
+
+  // Enforce UPPERCASE on all name fields for uniform display
+  const nameFields = {
+    lastName: toUpperCaseTrim(rawNameFields.lastName),
+    firstName: toUpperCaseTrim(rawNameFields.firstName),
+    middleName: toUpperCaseTrim(rawNameFields.middleName || rawNameFields.middleInitial),
+    middleInitial: toUpperCaseTrim(rawNameFields.middleInitial || rawNameFields.middleName).charAt(0),
+    nameExtension: toUpperCaseTrim(rawNameFields.nameExtension),
+  };
 
   return {
     ...data,
     ...nameFields,
+    // Enforce UPPERCASE on all text fields for uniform display
+    position: toUpperCaseTrim(data.position),
+    employeeNumber: toUpperCaseTrim(data.employeeNumber),
+    assignedReports: toUpperCaseTrim(data.assignedReports),
     fullName: buildFullName(nameFields),
   };
 }
@@ -119,11 +139,17 @@ export function getDisplayName(person) {
   return normalizePersonnelRecord(person).fullName;
 }
 
-export function personMatchesSearch(person, searchTerm = '') {
+export function personMatchesSearch(person, searchTerm = '', sections = []) {
   const query = searchTerm.trim().toLowerCase();
   if (!query) return true;
 
   const normalized = normalizePersonnelRecord(person);
+  const sectionNames = (person.assignedSections || [])
+    .map(id => {
+      const sec = (sections || []).find(s => s.id === id);
+      return sec ? sec.name : id;
+    });
+
   const haystack = [
     normalized.fullName,
     normalized.lastName,
@@ -131,6 +157,11 @@ export function personMatchesSearch(person, searchTerm = '') {
     normalized.middleInitial,
     normalized.nameExtension,
     person.email,
+    person.position,
+    person.role,
+    person.assignedReports,
+    ...(person.subjects || []),
+    ...sectionNames,
   ]
     .filter(Boolean)
     .join(' ')

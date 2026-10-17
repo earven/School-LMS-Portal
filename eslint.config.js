@@ -7,7 +7,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 import unusedImports from 'eslint-plugin-unused-imports'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'recovered.jsx', 'temp_students.jsx', 'cloudflare-worker', 'scratch_check_users.js']),
   {
     files: ['**/*.{js,jsx,ts,tsx}'],
     extends: [
@@ -17,7 +17,11 @@ export default defineConfig([
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        __APP_VERSION__: 'readonly',
+        __COMMIT_HASH__: 'readonly',
+      },
     },
     plugins: {
       'unused-imports': unusedImports,
@@ -29,7 +33,12 @@ export default defineConfig([
       'unused-imports/no-unused-vars': [
         'warn',
         { 'vars': 'all', 'varsIgnorePattern': '^_', 'args': 'after-used', 'argsIgnorePattern': '^_' }
-      ]
+      ],
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true }
+      ],
+      'react-hooks/set-state-in-effect': 'off'
     },
   },
 ])

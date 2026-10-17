@@ -36,6 +36,8 @@
  *   T (20) % Attendance Total = (R+S)/2        ← formula
  */
 
+import * as ExcelJS from 'exceljs';
+
 const MONTH_NAMES_UPPER = [
   'JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
   'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'
@@ -100,7 +102,6 @@ function copyRowStyle(sheet, srcRowNum, destRowNum) {
 
 export async function generateSF4Excel({
   templateBuffer,
-  ExcelJS,
   schoolId    = '',
   schoolName  = '',
   schoolYear  = '',

@@ -208,24 +208,24 @@ export const TeachingLoadProvider = ({ children }) => {
     }
   };
 
+  const contextValue = useMemo(() => ({
+    loads: visibleLoads,
+    allLoads: loads,
+    breaks,
+    loading,
+    error,
+    academicYear,
+    addLoad,
+    batchAddLoads,
+    updateLoad,
+    deleteLoad,
+    copyLoads,
+    addBreak,
+    deleteBreak,
+  }), [visibleLoads, loads, breaks, loading, error, academicYear]);
+
   return (
-    <TeachingLoadContext.Provider
-      value={{
-        loads: visibleLoads,
-        allLoads: loads,
-        breaks,
-        loading,
-        error,
-        academicYear,
-        addLoad,
-        batchAddLoads,
-        updateLoad,
-        deleteLoad,
-        copyLoads,
-        addBreak,
-        deleteBreak,
-      }}
-    >
+    <TeachingLoadContext.Provider value={contextValue}>
       {children}
     </TeachingLoadContext.Provider>
   );

@@ -1,13 +1,27 @@
-import React, { createContext, useContext } from 'react';
-import { useAuth } from './AuthContext';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, writeBatch, doc, serverTimestamp } from 'firebase/firestore';
+import {
+  enqueueOfflineAttendance,
+  flushOfflineQueue,
+  subscribeOfflineQueue,
+  getPendingQueueCount
+} from '../utils/offlineQueue';
 
 const AttendanceContext = createContext(null);
 
 export const AttendanceProvider = ({ children }) => {
-  const { user } = useAuth();
-  
+  const [pendingSyncCount, setPendingSyncCount] = useState(getPendingQueueCount());
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Subscribe to offline queue changes
+  useEffect(() => {
+    const unsub = subscribeOfflineQueue((count) => {
+      setPendingSyncCount(count);
+    });
+    return () => unsub();
+  }, []);
+
   // Fetch attendance for a specific section and month (YYYY-MM)
   const fetchAttendance = async (sectionId, yearMonth) => {
     try {
@@ -41,11 +55,20 @@ export const AttendanceProvider = ({ children }) => {
   
   // Save or update daily attendance for a section
   const saveDailyAttendance = async (sectionId, dateStr, yearMonth, attendanceDataArray) => {
-    // attendanceDataArray: [{studentId, status, remarks}]
+    // If offline, store locally in offline queue
+    if (!navigator.onLine) {
+      enqueueOfflineAttendance({
+        sectionId,
+        yearMonth,
+        records: attendanceDataArray.map(d => ({ ...d, date: dateStr })),
+        type: 'student'
+      });
+      return { success: true, offline: true };
+    }
+
     try {
       const batch = writeBatch(db);
       
-      // Get existing records for this date and section to update them instead of duplicating
       const q = query(
         collection(db, 'attendance'),
         where('sectionId', '==', sectionId),
@@ -71,7 +94,7 @@ export const AttendanceProvider = ({ children }) => {
             sectionId,
             studentId: data.studentId,
             date: dateStr,
-            yearMonth, // For easy monthly queries
+            yearMonth,
             status: data.status,
             remarks: data.remarks || '',
             createdAt: serverTimestamp(),
@@ -83,18 +106,32 @@ export const AttendanceProvider = ({ children }) => {
       await batch.commit();
       return { success: true };
     } catch (error) {
-      console.error("Error saving attendance:", error);
-      return { success: false, error: error.message };
+      console.warn("Network error saving attendance, queuing offline:", error);
+      enqueueOfflineAttendance({
+        sectionId,
+        yearMonth,
+        records: attendanceDataArray.map(d => ({ ...d, date: dateStr })),
+        type: 'student'
+      });
+      return { success: true, offline: true, error: error.message };
     }
   };
 
   // Save or update multiple attendance records across different dates (for SF2 Grid)
-  const saveBatchAttendance = async (sectionId, yearMonth, attendanceDataArray) => {
-    // attendanceDataArray: [{studentId, date, status, remarks}]
+  const saveBatchAttendance = useCallback(async (sectionId, yearMonth, attendanceDataArray) => {
+    if (!navigator.onLine) {
+      enqueueOfflineAttendance({
+        sectionId,
+        yearMonth,
+        records: attendanceDataArray,
+        type: 'student'
+      });
+      return { success: true, offline: true };
+    }
+
     try {
       const batch = writeBatch(db);
       
-      // Get all existing records for this month and section
       const q = query(
         collection(db, 'attendance'),
         where('sectionId', '==', sectionId),
@@ -134,10 +171,16 @@ export const AttendanceProvider = ({ children }) => {
       await batch.commit();
       return { success: true };
     } catch (error) {
-      console.error("Error batch saving attendance:", error);
-      return { success: false, error: error.message };
+      console.warn("Network write failed, enqueuing offline:", error);
+      enqueueOfflineAttendance({
+        sectionId,
+        yearMonth,
+        records: attendanceDataArray,
+        type: 'student'
+      });
+      return { success: true, offline: true, error: error.message };
     }
-  };
+  }, []);
 
   // Fetch teacher/personnel attendance for a specific month (YYYY-MM)
   const fetchTeacherAttendance = async (yearMonth) => {
@@ -154,13 +197,20 @@ export const AttendanceProvider = ({ children }) => {
     }
   };
 
-  // Save or update teacher attendance in batch (for teacher monthly grid/daily updates)
-  const saveTeacherAttendanceBatch = async (yearMonth, attendanceDataArray) => {
-    // attendanceDataArray: [{teacherId, date, status, remarks}]
+  // Save or update teacher attendance in batch
+  const saveTeacherAttendanceBatch = useCallback(async (yearMonth, attendanceDataArray) => {
+    if (!navigator.onLine) {
+      enqueueOfflineAttendance({
+        yearMonth,
+        records: attendanceDataArray,
+        type: 'teacher'
+      });
+      return { success: true, offline: true };
+    }
+
     try {
       const batch = writeBatch(db);
       
-      // Get all existing records for this month
       const q = query(
         collection(db, 'teacher_attendance'),
         where('yearMonth', '==', yearMonth)
@@ -198,20 +248,66 @@ export const AttendanceProvider = ({ children }) => {
       await batch.commit();
       return { success: true };
     } catch (error) {
-      console.error("Error batch saving teacher attendance:", error);
-      return { success: false, error: error.message };
+      console.warn("Network error saving teacher attendance, queuing offline:", error);
+      enqueueOfflineAttendance({
+        yearMonth,
+        records: attendanceDataArray,
+        type: 'teacher'
+      });
+      return { success: true, offline: true, error: error.message };
     }
-  };
+  }, []);
+
+  // Background Sync trigger
+  const syncOfflineQueue = useCallback(async () => {
+    if (isSyncing || !navigator.onLine) return;
+    setIsSyncing(true);
+    try {
+      const result = await flushOfflineQueue({
+        saveBatchAttendance,
+        saveTeacherAttendanceBatch
+      });
+      if (result.syncedCount > 0) {
+        console.log(`[OfflineQueue] Successfully synced ${result.syncedCount} queued attendance payloads.`);
+      }
+    } catch (err) {
+      console.error('[OfflineQueue] Sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, saveBatchAttendance, saveTeacherAttendanceBatch]);
+
+  // Listen for online events to automatically flush
+  useEffect(() => {
+    const handleOnline = () => {
+      syncOfflineQueue();
+    };
+
+    window.addEventListener('online', handleOnline);
+    // Also check on mount if online and queue > 0
+    if (navigator.onLine && getPendingQueueCount() > 0) {
+      syncOfflineQueue();
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [syncOfflineQueue]);
+
+  const contextValue = useMemo(() => ({
+    fetchAttendance, 
+    fetchSchoolAttendance, 
+    saveDailyAttendance, 
+    saveBatchAttendance, 
+    fetchTeacherAttendance, 
+    saveTeacherAttendanceBatch,
+    syncOfflineQueue,
+    pendingSyncCount,
+    isSyncing
+  }), [syncOfflineQueue, pendingSyncCount, isSyncing]);
 
   return (
-    <AttendanceContext.Provider value={{ 
-      fetchAttendance, 
-      fetchSchoolAttendance, 
-      saveDailyAttendance, 
-      saveBatchAttendance, 
-      fetchTeacherAttendance, 
-      saveTeacherAttendanceBatch 
-    }}>
+    <AttendanceContext.Provider value={contextValue}>
       {children}
     </AttendanceContext.Provider>
   );

@@ -32,25 +32,44 @@ service cloud.firestore {
 
     // Users/Personnel collection
     match /users/{userId} {
-      allow read: if isAuthorized() || (isSignedIn() && request.auth.uid == userId);
-      allow write: if isAdmin();
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      // Allow users to update their own profile (limited fields)
-      // Allow transitioning from 'pending' to 'teacher' upon code verification
-      allow update: if isSignedIn() && request.auth.uid == userId 
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assignedSections'])
-                    && (
-                      !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) 
-                      || (resource.data.role == 'pending' && request.resource.data.role == 'teacher')
-                    );
+      // Any signed-in user can read profiles (needed for messaging, adviser lookup, etc.)
+      allow read: if isSignedIn();
+
+      // A user can only create their own document with safe default roles.
+      // Prevent privilege escalation to 'admin' or self-assigning 'isEnrolmentCoordinator'.
+      allow create: if isSignedIn() && request.auth.uid == userId
+                    && (!('role' in request.resource.data) || request.resource.data.role in ['pending', 'teacher'])
+                    && (!('isEnrolmentCoordinator' in request.resource.data) || request.resource.data.isEnrolmentCoordinator == false);
+
+      // Admins can update any profile.
+      // A user can update their own profile EXCEPT they cannot change their
+      // assigned sections, enrolment coordinator status, or escalate their own role (only pending→teacher is allowed).
+      allow update: if isAdmin()
+                    || (isSignedIn() && request.auth.uid == userId
+                        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assignedSections', 'isEnrolmentCoordinator'])
+                        && (
+                          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+                          || (resource.data.role == 'pending' && request.resource.data.role == 'teacher')
+                        ));
+
+      // Only admins can permanently delete a user document.
+      allow delete: if isAdmin();
     }
     
     // Students collection
     match /students/{studentId} {
       allow read: if isAdmin() || isTeacher();
       
-      allow create, update: if isAdmin() || 
+      // Teachers can only register students into a section they advise.
+      allow create: if isAdmin() || 
                     (isTeacher() && 
+                     get(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)).data.adviserId == request.auth.uid);
+      
+      // Teachers can only update students within their own assigned section,
+      // and cannot transfer/hijack students to or from another adviser's section.
+      allow update: if isAdmin() || 
+                    (isTeacher() && 
+                     get(/databases/$(database)/documents/sections/$(resource.data.sectionId)).data.adviserId == request.auth.uid &&
                      get(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)).data.adviserId == request.auth.uid);
       
       allow delete: if isAdmin();
@@ -70,7 +89,8 @@ service cloud.firestore {
 
     // Enrolment Students Collection
     match /enrolment_students/{studentId} {
-      allow read, write: if isAdmin() || (isSignedIn() && getUserData().isEnrolmentCoordinator == true);
+      allow read: if isAuthorized() || (isSignedIn() && getUserData().isEnrolmentCoordinator == true);
+      allow write: if isAdmin() || (isSignedIn() && getUserData().isEnrolmentCoordinator == true);
     }
 
     // Submission tasks created by admin
@@ -79,7 +99,9 @@ service cloud.firestore {
       allow create: if isAdmin()
                     && request.resource.data.createdBy == request.auth.uid
                     && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 200
                     && request.resource.data.description is string
+                    && request.resource.data.description.size() <= 5000
                     && request.resource.data.deadline is string
                     && (request.resource.data.recipients is string || request.resource.data.recipients is list);
       allow update, delete: if isAdmin();
@@ -105,15 +127,40 @@ service cloud.firestore {
     }
 
     // Daily Student Attendance
+    // Teachers may only read/write attendance records for the sections they advise.
+    // This mirrors the scoping already applied to the students collection.
     match /attendance/{attendanceId} {
       allow read: if isAuthorized();
-      allow write: if isTeacher() || isAdmin();
+
+      // A teacher can only create an attendance log for a section they advise.
+      allow create: if isAdmin()
+                    || (isTeacher()
+                        && get(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)).data.adviserId == request.auth.uid);
+
+      // A teacher can only update a log that already belongs to their section,
+      // and they cannot re-assign the log to a different section.
+      allow update: if isAdmin()
+                    || (isTeacher()
+                        && get(/databases/$(database)/documents/sections/$(resource.data.sectionId)).data.adviserId == request.auth.uid
+                        && request.resource.data.sectionId == resource.data.sectionId);
+
+      // A teacher can only delete a log from their own section.
+      allow delete: if isAdmin()
+                    || (isTeacher()
+                        && get(/databases/$(database)/documents/sections/$(resource.data.sectionId)).data.adviserId == request.auth.uid);
     }
 
     // Daily Teacher/Personnel Attendance
     match /teacher_attendance/{logId} {
       allow read: if isAuthorized();
       allow write: if isAdmin();
+    }
+
+    // Computer Laboratory Visitor & Attendance Logbook
+    match /computer_lab_logs/{logId} {
+      allow read: if isAuthorized();
+      allow create: if isAuthorized() || isSignedIn();
+      allow update, delete: if isAdmin() || (isTeacher() && (resource.data.loggedBy == request.auth.uid || !('loggedBy' in resource.data)));
     }
 
     // Teacher responses for submission tasks
@@ -134,8 +181,27 @@ service cloud.firestore {
 
     // Notifications
     match /notifications/{notificationId} {
-      allow read, update, delete: if isSignedIn() && (resource.data.recipientId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn();
+      // Recipients can read and delete their own notifications. Admins can read all.
+      allow read: if isSignedIn() && (resource.data.recipientId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (resource.data.recipientId == request.auth.uid || isAdmin());
+
+      // Prevent sender spoofing: the senderId field MUST match the authenticated user's UID.
+      // 'system' is permitted for automated server-triggered notifications.
+      // Without this check, any teacher could forge notifications appearing to come from the principal.
+      allow create: if isSignedIn()
+                    && (request.resource.data.senderId == request.auth.uid
+                        || request.resource.data.senderId == 'system')
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 150
+                    && request.resource.data.message is string
+                    && request.resource.data.message.size() <= 2000;
+
+      // Recipients may only update status fields (read, acknowledged) on their own notifications.
+      // They cannot alter the message content, sender identity, or recipient.
+      allow update: if isAdmin()
+                    || (isSignedIn()
+                        && resource.data.recipientId == request.auth.uid
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'acknowledged']));
     }
 
     // Calendar Events
@@ -168,6 +234,68 @@ service cloud.firestore {
     match /master_inventory/{itemId} {
       allow read: if isAdmin() || isTeacher();
       allow write: if isAdmin();
+    }
+
+    // Learning Resources
+    match /learning_resources/{resourceId} {
+      allow read: if isAuthorized();
+      allow write: if isAdmin();
+    }
+
+    // Memo Stocker
+    match /memos/{memoId} {
+      allow read: if isAuthorized();
+      allow create: if isAdmin()
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 200
+                    && request.resource.data.driveLink is string;
+      allow delete: if isAdmin();
+    }
+
+    // Academic Record Tracker Logs (Ins and Outs tracking)
+    match /academic_document_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Internal Messaging — Conversations
+    match /conversations/{conversationId} {
+      // Only members of the conversation can read it
+      allow read: if isAuthorized() && request.auth.uid in resource.data.members;
+      // Any authorized user can create a conversation if they include themselves as a member
+      allow create: if isAuthorized() && request.auth.uid in request.resource.data.members;
+      // Members can update metadata (lastMessage, unreadBy, etc.)
+      allow update: if isAuthorized() && request.auth.uid in resource.data.members;
+      allow delete: if isAdmin();
+
+      // Messages subcollection — scoped to conversation members
+      match /messages/{messageId} {
+        allow read: if isAuthorized() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.members;
+        allow create: if isAuthorized() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.members &&
+          request.resource.data.senderId == request.auth.uid;
+        // Allow author or conversation members (for reactions/pins) or admin to update
+        allow update: if isAdmin() || (isAuthorized() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.members);
+        // Only author or admin can delete
+        allow delete: if isAdmin() ||
+          (isAuthorized() && resource.data.senderId == request.auth.uid);
+      }
+    }
+
+    // Immutable System Audit Logs
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      // Allow authorized actors to write their own log entry
+      allow create: if isAuthorized()
+                    && request.resource.data.actorId == request.auth.uid
+                    && request.resource.data.action is string
+                    && request.resource.data.action.size() <= 100
+                    && request.resource.data.category is string
+                    && request.resource.data.category.size() <= 100;
+      // Immutable: No modifications or deletions permitted
+      allow update, delete: if false;
     }
   }
 }

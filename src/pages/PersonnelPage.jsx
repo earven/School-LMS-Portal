@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePersonnel } from '../context/PersonnelContext';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSections } from '../context/SectionContext';
+import { useSettings } from '../context/SettingsContext';
 import {
   normalizePersonnelRecord,
   preparePersonnelForSave,
@@ -11,25 +12,45 @@ import {
   buildFullName,
   hasRequiredNameFields,
 } from '../utils/personnelName';
+import { SUBJECT_SPECIALIZATIONS } from '../components/PersonnelFormFields';
+import { printSF7Register, exportSF7ToCSV } from '../utils/sf7Generator';
+import FacultyIdCardModal from '../components/FacultyIdCardModal';
+import TableSkeleton from '../components/TableSkeleton';
+import EmptyState from '../components/EmptyState';
 import './PersonnelPage.css';
 
 const PersonnelPage = () => {
   const navigate = useNavigate();
+  const { settings } = useSettings();
   const { 
     personnel, 
     loading, 
     error, 
     customFieldsConfig, 
-    addPersonnel, 
+    addPersonnel,
+    batchUpdatePosition,
+    migratePersonnelCasing,
   } = usePersonnel();
   const { user } = useAuth();
-  const { sections } = useSections(); // Fetch sections
+  const { sections } = useSections();
   const [searchTerm, setSearchTerm] = useState('');
-  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
   const [sortField, setSortField] = useState('lastName');
   const [sortDirection, setSortDirection] = useState('asc');
 
-  const SUBJECT_SPECIALIZATIONS = ['AP', 'English', 'Mathematics', 'Science', 'Filipino', 'MAPEH', 'TLE', 'ESP'];
+  // Filters
+  const [filterAdviser, setFilterAdviser] = useState('all'); // 'all', 'advisers', 'non-advisers', 'with-ancillary'
+  const [filterSubject, setFilterSubject] = useState('all'); // 'all' or specific subject
+
+  // Multi-Select & Bulk Actions State
+  const [selectedPersonnelIds, setSelectedPersonnelIds] = useState([]);
+  const [showBulkPositionModal, setShowBulkPositionModal] = useState(false);
+  const [bulkTargetPosition, setBulkTargetPosition] = useState('Teacher I');
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  // Faculty ID Card Modal
+  const [showFacultyIdModal, setShowFacultyIdModal] = useState(false);
+  const [idCardTargetPersonnel, setIdCardTargetPersonnel] = useState([]);
 
   const SORTABLE_COLUMNS = [
     { key: 'lastName', label: 'Last Name' },
@@ -42,12 +63,38 @@ const PersonnelPage = () => {
   ];
 
   const isAdmin = ['admin', 'system_admin'].includes(user?.role);
-  // Find current authenticated user's personnel record from the fetched personnel list
-  const currentUserPersonnel = personnel.find(p => p.id === (user?.uid || user?.id));
 
-  // If not admin, restrict view to own profile or assigned sections
-  const [filterAdviser, setFilterAdviser] = useState('all'); // 'all', 'advisers', 'non-advisers'
-  const [filterSubject, setFilterSubject] = useState('all'); // 'all' or specific subject
+  const formatRole = (role) =>
+    (role || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const handleMigrateCasing = async () => {
+    if (!window.confirm(
+      'This will update ALL existing personnel records in Firestore to use the new uniform casing rules\n\n'
+      + '• Names → UPPERCASE\n'
+      + '• Position → Title Case\n'
+      + '• Employee Number → UPPERCASE\n\n'
+      + 'Only fields that differ will be written. Continue?'
+    )) return;
+
+    setIsMigrating(true);
+    try {
+      const { updated, skipped, errors } = await migratePersonnelCasing();
+      const msg = [
+        `✅ Migration complete!`,
+        ``,
+        `• Updated : ${updated} record(s)`,
+        `• Already clean: ${skipped} record(s)`,
+        errors.length > 0 ? `• Errors   : ${errors.length}\n${errors.join('\n')}` : '',
+      ].filter(Boolean).join('\n');
+      alert(msg);
+    } catch (e) {
+      alert(`Migration failed: ${e.message}`);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
 
   const adviserIds = useMemo(
     () => new Set(sections.map((s) => s.adviserId).filter(Boolean)),
@@ -61,481 +108,454 @@ const PersonnelPage = () => {
 
   const filteredList = useMemo(() => {
     return normalizedPersonnel.filter((p) => {
-      if (!personMatchesSearch(p, searchTerm)) return false;
+      if (!personMatchesSearch(p, searchTerm, sections)) return false;
 
       const isAdviser = adviserIds.has(p.id);
       if (filterAdviser === 'advisers' && !isAdviser) return false;
       if (filterAdviser === 'non-advisers' && isAdviser) return false;
+      if (filterAdviser === 'with-ancillary') {
+        const hasAncillary = (Array.isArray(p.ancillaryDuties) && p.ancillaryDuties.length > 0) || (p.ancillaryDuties && p.ancillaryDuties !== 'None');
+        if (!hasAncillary) return false;
+      }
 
-      if (filterSubject !== 'all' && !(p.subjects || []).includes(filterSubject)) return false;
+      if (filterSubject !== 'all') {
+        const subjects = p.subjects || [];
+        if (!subjects.includes(filterSubject)) return false;
+      }
 
       return true;
     });
-  }, [normalizedPersonnel, searchTerm, filterAdviser, filterSubject, adviserIds]);
+  }, [normalizedPersonnel, searchTerm, filterAdviser, filterSubject, adviserIds, sections]);
 
-  const displayedPersonnel = useMemo(() => {
-    const list = isAdmin
-      ? [...filteredList]
-      : currentUserPersonnel
-        ? [normalizePersonnelRecord(currentUserPersonnel)]
-        : [];
+  const sortedPersonnel = useMemo(() => {
+    const list = [...filteredList];
+    return list.sort((a, b) => {
+      return comparePersonnel(a, b, sortField, sortDirection);
+    });
+  }, [filteredList, sortField, sortDirection]);
 
-    return list.sort((a, b) => comparePersonnel(a, b, sortField, sortDirection));
-  }, [isAdmin, filteredList, currentUserPersonnel, sortField, sortDirection]);
-
-  const handleSort = (field) => {
-    if (sortField === field) {
+  const handleSort = (key) => {
+    if (sortField === key) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
-      setSortField(field);
+      setSortField(key);
       setSortDirection('asc');
     }
   };
 
-  const getSortIndicator = (field) => {
-    if (sortField !== field) return '↕';
-    return sortDirection === 'asc' ? '↑' : '↓';
+  const handleToggleSelectPersonnel = (id, e) => {
+    e.stopPropagation();
+    setSelectedPersonnelIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
   };
 
-  const handleRowClick = (person) => {
-    if (isAdmin || person.id === (user?.uid || user?.id)) {
-      navigate(`/personnel/${person.id}`);
+  const handleSelectAllFiltered = (e) => {
+    if (e.target.checked) {
+      setSelectedPersonnelIds(sortedPersonnel.map(p => p.id));
+    } else {
+      setSelectedPersonnelIds([]);
     }
   };
 
-  const handleExportCSV = () => {
-    const baseHeaders = ['ID', 'Email', 'Last Name', 'First Name', 'Middle Initial', 'Extension', 'Position', 'Role', 'Assigned Ancillary', 'Assigned Sections', 'Specializations'];
-    const customHeaders = customFieldsConfig.map(f => f.label);
-    const headers = [...baseHeaders, ...customHeaders];
+  // Open Faculty ID Card Modal
+  const handleOpenFacultyIds = (targetList = null) => {
+    const listToPrint = targetList || (selectedPersonnelIds.length > 0
+      ? personnel.filter(p => selectedPersonnelIds.includes(p.id))
+      : sortedPersonnel);
 
-    const csvContent = [
-      headers.join(','),
-      ...displayedPersonnel.map(p => {
-        const row = [
-          p.id,
-          p.email || '',
-          `"${p.lastName || ''}"`,
-          `"${p.firstName || ''}"`,
-          `"${p.middleName || ''}"`,
-          `"${p.nameExtension || ''}"`,
-          `"${p.position}"`,
-          p.role,
-          `"${p.assignedReports || ''}"`,
-          `"${(p.assignedSections || []).join(';')}"`,
-          `"${(p.subjects || []).join(';')}"`
-        ];
-        
-        customFieldsConfig.forEach(field => {
-          const val = p.customFields?.[field.id] ?? '';
-          row.push(`"${val}"`);
-        });
-        
-        return row.join(',');
-      })
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `personnel_export_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const generatePersonnelCSVTemplate = () => {
-    const baseHeaders = ['Email', 'Password', 'LastName', 'FirstName', 'MiddleName', 'Extension', 'Position', 'Role', 'AssignedAncillary', 'Specializations'];
-    const customHeaders = customFieldsConfig.map(f => f.label);
-    const headers = [...baseHeaders, ...customHeaders];
-    
-    const dummyVals = customFieldsConfig.map(f => {
-      if (f.type === 'date') return '1990-01-01';
-      if (f.type === 'number') return '123';
-      if (f.type === 'checkbox') return 'false';
-      if (f.type === 'select') return f.options?.[0] || '';
-      return 'Sample';
-    });
-
-    const csvContent = headers.join(',') + '\n' + 
-      'teacher@example.com,password123,"Dela Cruz","Juan","M","Jr.","Teacher I",teacher,"Math Coordinator, BSP Adviser","AP;English"' +
-      (dummyVals.length > 0 ? ',' + dummyVals.map(v => `"${v}"`).join(',') : '');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'personnel_template.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleBulkUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File size exceeds 5MB limit. Please upload a smaller CSV file.");
-      event.target.value = null;
+    if (listToPrint.length === 0) {
+      alert('No faculty/staff records available to generate ID badges.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target.result;
-      const lines = text.split('\n').filter(line => line.trim() !== '');
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/ /g, ''));
-
-      let successCount = 0;
-      let failCount = 0;
-      let errors = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        // Simple CSV parser that handles quotes and empty fields
-        const values = [];
-        let current = "";
-        let inQuotes = false;
-        
-        for (let char of lines[i]) {
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            values.push(current.trim());
-            current = "";
-          } else {
-            current += char;
-          }
-        }
-        values.push(current.trim()); // Push last field
-
-        const cleanedValues = values.map(v => v.replace(/^"|"$/g, '').trim());
-
-        if (cleanedValues.length < 3 || !cleanedValues[0]) {
-          continue;
-        }
-
-        const personData = {};
-        const customFieldsData = {};
-        
-        headers.forEach((header, index) => {
-          const cleanVal = cleanedValues[index];
-          if (cleanVal !== undefined) {
-            personData[header] = cleanVal;
-            
-            // Check if this matches a custom field label
-            const matchedField = customFieldsConfig.find(f => 
-              f.label.trim().toLowerCase().replace(/ /g, '') === header
-            );
-            if (matchedField) {
-              if (matchedField.type === 'checkbox') {
-                customFieldsData[matchedField.id] = cleanVal.toLowerCase() === 'true' || cleanVal.toLowerCase() === 'yes';
-              } else {
-                customFieldsData[matchedField.id] = cleanVal;
-              }
-            }
-          }
-        });
-
-        const legacyFullName = personData.fullname || personData.name || personData['fullname'] || '';
-        const formattedData = preparePersonnelForSave({
-          email: personData.email,
-          lastName: personData.lastname || personData['lastname'] || '',
-          firstName: personData.firstname || personData['firstname'] || '',
-          middleName: personData.middlename || personData['middlename'] || '',
-          nameExtension: personData.extension || personData.nameextension || personData['nameextension'] || '',
-          position: personData.position || 'Teacher I',
-          role: (personData.role || 'teacher').toLowerCase(),
-          assignedReports:
-            personData.assignedancillary ||
-            personData.assignedcoordinatorship ||
-            personData.assignedreports ||
-            '',
-          assignedSections: [],
-          subjects: (personData.specializations || personData.subjects || '').split(';').map(s => s.trim()).filter(Boolean),
-          customFields: customFieldsData,
-          fullName: legacyFullName,
-        });
-
-        if (!formattedData.email || !hasRequiredNameFields(formattedData)) continue;
-
-        const result = await addPersonnel(formattedData, personData.password || 'password123');
-        if (result.success) {
-          successCount++;
-        } else {
-          failCount++;
-          errors.push(`${formattedData.email}: ${result.error}`);
-        }
-      }
-
-      alert(`Bulk upload complete!\n\n✅ Success: ${successCount}\n❌ Failed: ${failCount}${errors.length > 0 ? '\n\nErrors:\n' + errors.join('\n') : ''}`);
-      setShowBulkUpload(false);
-      event.target.value = null;
-    };
-    reader.readAsText(file);
+    setIdCardTargetPersonnel(listToPrint);
+    setShowFacultyIdModal(true);
   };
 
-  if (loading) {
-    return <div className="loading-indicator">Loading personnel...</div>;
-  }
-  if (error) {
-    return <div className="error-message">{error}</div>;
-  }
+  // SF7 Exports
+  const handlePrintSF7 = () => {
+    printSF7Register(sortedPersonnel, sections, settings);
+  };
+
+  const handleExportSF7CSV = () => {
+    exportSF7ToCSV(sortedPersonnel, sections, settings);
+  };
+
+  // Bulk Position Submit
+  const handleBulkPositionSubmit = async () => {
+    setIsBulkProcessing(true);
+    try {
+      const res = await batchUpdatePosition(selectedPersonnelIds, bulkTargetPosition);
+      if (res?.success) {
+        alert(`Successfully updated position of ${selectedPersonnelIds.length} staff to "${bulkTargetPosition}"!`);
+        setShowBulkPositionModal(false);
+        setSelectedPersonnelIds([]);
+      }
+    } catch (err) {
+      alert(`Bulk update failed: ${err.message}`);
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
 
   return (
     <div className="personnel-container">
+      {/* Top Header */}
       <div className="personnel-header">
-        <div className="header-title-row">
-          <h1>{isAdmin ? 'Personnel Management' : 'My Profile'}</h1>
+        <div className="header-title-group">
+          <h1>Faculty & Staff Management</h1>
+          <span className="personnel-count-pill">{sortedPersonnel.length} Personnel</span>
+        </div>
+
+        <div className="header-actions">
+          {/* Print SF7 */}
+          <button 
+            type="button" 
+            className="btn-header-action btn-sf7-print"
+            onClick={handlePrintSF7}
+            title="Print Official DepEd Form 7 (School Personnel Assignment List)"
+          >
+            📋 Print SF7 Register
+          </button>
+
+          {/* Export SF7 CSV */}
+          <button 
+            type="button" 
+            className="btn-header-action btn-sf7-csv"
+            onClick={handleExportSF7CSV}
+            title="Export SF7 to CSV / Excel"
+          >
+            📥 SF7 (CSV)
+          </button>
+
+          {/* Print Faculty IDs */}
+          <button 
+            type="button" 
+            className="btn-header-action btn-faculty-ids"
+            onClick={() => handleOpenFacultyIds()}
+            title="Print Faculty & Staff ID Badges with QR Code"
+          >
+            🪪 Print Staff IDs
+          </button>
+
           {isAdmin && (
-            <div className="header-actions">
-              <button className="export-btn-outline" onClick={handleExportCSV}>
-                📥 Export CSV
-              </button>
-              <button className="export-btn-outline" onClick={() => navigate('/personnel/configure-fields')}>
-                ⚙️ Configure Fields
-              </button>
-              <button className="add-btn-primary" onClick={() => {
-                setShowBulkUpload(true);
-              }}>
-                ⬆️ Bulk Upload
-              </button>
-              <button className="add-btn-primary" onClick={() => navigate('/personnel/new')}>
-                + Add New Personnel
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn-header-action"
+              onClick={handleMigrateCasing}
+              disabled={isMigrating}
+              title="Apply uniform UPPERCASE casing to all names and employee numbers in Firestore"
+            >
+              {isMigrating ? 'Migrating...' : '🔤 Clean Casing'}
+            </button>
+          )}
+
+          {isAdmin && (
+            <button
+              className="primary-btn"
+              onClick={() => navigate('/personnel/new')}
+            >
+              + Add Personnel
+            </button>
           )}
         </div>
-        {isAdmin && (
-          <div className="personnel-filters-bar">
-            <div className="search-box">
-              <input 
-                type="text" 
-                placeholder="Search by name or email..." 
-                value={searchTerm} 
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="search-input"
-              />
-            </div>
-            <div className="filter-dropdowns">
-              <div className="filter-group">
-                <label>Nature of Task:</label>
-                <select value={filterAdviser} onChange={(e) => setFilterAdviser(e.target.value)}>
-                  <option value="all">All Nature</option>
-                  <option value="advisers">Advisers Only</option>
-                  <option value="non-advisers">Non-Advisers Only</option>
-                </select>
-              </div>
-              <div className="filter-group">
-                <label>Specialization:</label>
-                <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}>
-                  <option value="all">All Subjects</option>
-                  {SUBJECT_SPECIALIZATIONS.map(sub => (
-                    <option key={sub} value={sub}>{sub}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
-      <div className="personnel-content">
-        {isAdmin ? (
-          <div className="table-wrapper">
-            <table className="personnel-table">
-              <thead>
-                <tr>
-                  {SORTABLE_COLUMNS.map((col) => (
-                    <th key={col.key}>
-                      <button
-                        type="button"
-                        className="sortable-header-btn"
-                        onClick={() => handleSort(col.key)}
-                      >
-                        {col.label} <span className="sort-indicator">{getSortIndicator(col.key)}</span>
-                      </button>
-                    </th>
-                  ))}
-                  <th>Nature of Task</th>
-                  <th>Specializations</th>
-                  <th>Sections</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedPersonnel.map(p => {
-                  const isAdviser = adviserIds.has(p.id);
-                  return (
-                    <tr key={p.id} onClick={() => handleRowClick(p)}>
-                      <td>{p.lastName || '—'}</td>
-                      <td>{p.firstName || '—'}</td>
-                      <td>{p.middleName || '—'}</td>
-                      <td>{p.nameExtension || '—'}</td>
-                      <td>{p.email}</td>
-                      <td>{p.position}</td>
-                      <td className="capitalize" style={{ textTransform: 'capitalize' }}>{p.role.replace('_', ' ')}</td>
-                      <td>{isAdviser ? 'Adviser' : 'Non-Adviser'}</td>
-                      <td>{(p.subjects || []).join(', ') || 'None'}</td>
-                      <td>{(p.assignedSections || []).map(id => sections.find(s => s.id === id)?.name || id).join(', ')}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* Filter and Search Bar */}
+      <div className="filters-bar card">
+        <div className="search-box">
+          <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="text"
+            placeholder="Search by name, email, employee #, advisory section..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button className="clear-btn" onClick={() => setSearchTerm('')}>×</button>
+          )}
+        </div>
+
+        <div className="filter-controls">
+          <div className="filter-group">
+            <label>Designation:</label>
+            <select
+              value={filterAdviser}
+              onChange={(e) => setFilterAdviser(e.target.value)}
+            >
+              <option value="all">All Staff</option>
+              <option value="advisers">Class Advisers Only</option>
+              <option value="non-advisers">Non-Advisers Only</option>
+              <option value="with-ancillary">With Ancillary Duties</option>
+            </select>
           </div>
+
+          <div className="filter-group">
+            <label>Subject Area:</label>
+            <select
+              value={filterSubject}
+              onChange={(e) => setFilterSubject(e.target.value)}
+            >
+              <option value="all">All Subjects</option>
+              {SUBJECT_SPECIALIZATIONS.map((subj) => (
+                <option key={subj} value={subj}>
+                  {subj}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Table Data Grid */}
+      <div className="table-wrapper card">
+        {loading && <div className="loading-state">Loading personnel records...</div>}
+
+        <table className="personnel-table">
+          <thead>
+            <tr>
+              <th style={{ width: '40px' }}>
+                <input 
+                  type="checkbox"
+                  checked={sortedPersonnel.length > 0 && selectedPersonnelIds.length === sortedPersonnel.length}
+                  onChange={handleSelectAllFiltered}
+                />
+              </th>
+              {SORTABLE_COLUMNS.map(({ key, label }) => (
+                <th
+                  key={key}
+                  onClick={() => handleSort(key)}
+                  className={`sortable-th ${sortField === key ? 'sorted' : ''}`}
+                >
+                  <div className="th-content">
+                    {label}
+                    <span className="sort-icon">
+                      {sortField === key ? (sortDirection === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}
+                    </span>
+                  </div>
+                </th>
+              ))}
+              <th>Advisory Section</th>
+              <th>Ancillary Duties</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+        {loading ? (
+          <TableSkeleton rows={8} columns={10} hasCheckbox={true} />
         ) : (
-          currentUserPersonnel && (() => {
-            const displayPerson = normalizePersonnelRecord(currentUserPersonnel);
-            const sectionNames = (currentUserPersonnel.assignedSections || [])
-              .map((id) => sections.find((s) => s.id === id)?.name || id)
-              .join(', ');
-            return (
-              <div className="profile-dashboard-view">
-                <div className="profile-dashboard-card">
-                  <div className="profile-dashboard-header">
-                    <div className="profile-avatar-large-container">
-                      <div className="profile-avatar-large">
-                        {(displayPerson.firstName || 'U').charAt(0).toUpperCase()}
-                      </div>
-                    </div>
-                    <div className="profile-header-info">
-                      <h2>{buildFullName(displayPerson)}</h2>
-                      <div className="profile-badges-row">
-                        <span className="profile-position-badge">
-                          {currentUserPersonnel.position || 'Teacher I'}
-                        </span>
-                        <span className="profile-role-badge">
-                          {(currentUserPersonnel.role || 'Teacher').replace('_', ' ').toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="edit-profile-btn-primary"
-                      onClick={() => navigate(`/personnel/${currentUserPersonnel.id}/edit`)}
-                    >
-                      ✏️ Edit Profile Details
-                    </button>
-                  </div>
+          <tbody>
+            {sortedPersonnel.length === 0 ? (
+              <tr>
+                <td colSpan="11" className="empty-state-table-cell">
+                  <EmptyState
+                    icon="🧑‍🏫"
+                    title="No Personnel Found"
+                    description={
+                      searchTerm || filterAdviser !== 'all' || filterSubject !== 'all'
+                        ? "No faculty members match your search or filter settings."
+                        : "No personnel records have been added to the system yet."
+                    }
+                    actionLabel={
+                      searchTerm || filterAdviser !== 'all' || filterSubject !== 'all'
+                        ? "Clear Filters"
+                        : isAdmin
+                        ? "+ Add Personnel"
+                        : undefined
+                    }
+                    onAction={
+                      searchTerm || filterAdviser !== 'all' || filterSubject !== 'all'
+                        ? () => {
+                            setSearchTerm('');
+                            setFilterAdviser('all');
+                            setFilterSubject('all');
+                          }
+                        : isAdmin
+                        ? () => navigate('/personnel/new')
+                        : undefined
+                    }
+                    compact
+                  />
+                </td>
+              </tr>
+            ) : null}
 
-                  <div className="profile-dashboard-sections">
-                    <div className="profile-info-section">
-                      <h3>📋 Personal Information</h3>
-                      <div className="profile-info-grid-aligned">
-                        <div className="info-cell">
-                          <span className="info-cell-label">First Name</span>
-                          <span className="info-cell-value">{displayPerson.firstName || '—'}</span>
-                        </div>
-                        <div className="info-cell">
-                          <span className="info-cell-label">Middle Name</span>
-                          <span className="info-cell-value">{displayPerson.middleName || '—'}</span>
-                        </div>
-                        <div className="info-cell">
-                          <span className="info-cell-label">Last Name</span>
-                          <span className="info-cell-value">{displayPerson.lastName || '—'}</span>
-                        </div>
-                        <div className="info-cell">
-                          <span className="info-cell-label">Name Extension</span>
-                          <span className="info-cell-value">{displayPerson.nameExtension || '—'}</span>
-                        </div>
-                        <div className="info-cell full-width">
-                          <span className="info-cell-label">Email Address</span>
-                          <span className="info-cell-value">{currentUserPersonnel.email}</span>
-                        </div>
-                      </div>
-                    </div>
+            {sortedPersonnel.map((person) => {
+              const isSelected = selectedPersonnelIds.includes(person.id);
+              const assignedSecs = sections.filter(s => s.adviserId === person.id);
+              const isClassAdviser = assignedSecs.length > 0;
+              const isCurrentUser = person.id === (user?.uid || user?.id);
 
-                    <div className="profile-info-section">
-                      <h3>🏫 School Assignments & Roles</h3>
-                      <div className="profile-info-grid-aligned">
-                        <div className="info-cell">
-                          <span className="info-cell-label">Employee ID</span>
-                          <span className="info-cell-value">{currentUserPersonnel.id}</span>
-                        </div>
-                        <div className="info-cell">
-                          <span className="info-cell-label">Subject Specializations</span>
-                          <span className="info-cell-value">{(currentUserPersonnel.subjects || []).join(', ') || 'None'}</span>
-                        </div>
-                        <div className="info-cell full-width">
-                          <span className="info-cell-label">Assigned Sections</span>
-                          <span className="info-cell-value">{sectionNames || 'None'}</span>
-                        </div>
-                        <div className="info-cell full-width">
-                          <span className="info-cell-label">Assigned Ancillary / Coordinatorship</span>
-                          <span className="info-cell-value">{currentUserPersonnel.assignedReports || 'None'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {customFieldsConfig.length > 0 && (
-                      <div className="profile-info-section full-width">
-                        <h3>⚙️ Custom Information</h3>
-                        <div className="profile-info-grid-aligned">
-                          {customFieldsConfig.map((field) => {
-                            const val = currentUserPersonnel.customFields?.[field.id];
-                            return (
-                              <div key={field.id} className="info-cell">
-                                <span className="info-cell-label">{field.label}</span>
-                                <span className="info-cell-value">
-                                  {val === undefined || val === null || val === ''
-                                    ? '—'
-                                    : field.type === 'checkbox'
-                                    ? val ? 'Yes' : 'No'
-                                    : String(val)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+              return (
+                <tr
+                  key={person.id}
+                  className={`table-row ${isSelected ? 'selected-row' : ''} ${isCurrentUser ? 'current-user-row' : ''}`}
+                  onClick={() => navigate(`/personnel/${person.id}`)}
+                >
+                  <td onClick={e => e.stopPropagation()}>
+                    <input 
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => handleToggleSelectPersonnel(person.id, e)}
+                    />
+                  </td>
+                  <td><strong>{person.lastName || '—'}</strong></td>
+                  <td>{person.firstName || '—'}</td>
+                  <td>{person.middleName || '—'}</td>
+                  <td>{person.nameExtension || '—'}</td>
+                  <td className="email-cell">{person.email || '—'}</td>
+                  <td>
+                    <span className="position-tag">{person.position || 'Teacher I'}</span>
+                  </td>
+                  <td>
+                    <span className={`role-badge role-${(person.role || 'teacher').toLowerCase()}`}>
+                      {formatRole(person.role)}
+                    </span>
+                  </td>
+                  <td>
+                    {isClassAdviser ? (
+                      <span className="adviser-badge">
+                        🏫 {assignedSecs.map(s => `${s.gradeLevel} - ${s.name}`).join(', ')}
+                      </span>
+                    ) : (
+                      <span className="no-adviser-tag">—</span>
                     )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()
+                  </td>
+                  <td>
+                    {person.ancillaryDuties && person.ancillaryDuties.length > 0 ? (
+                      <span className="ancillary-tag">
+                        ⭐ {Array.isArray(person.ancillaryDuties) ? person.ancillaryDuties.join(', ') : person.ancillaryDuties}
+                      </span>
+                    ) : (
+                      <span className="no-ancillary-tag">—</span>
+                    )}
+                  </td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button 
+                        type="button"
+                        className="btn-tbl-action"
+                        onClick={() => handleOpenFacultyIds([person])}
+                        title="Print ID Card"
+                      >
+                        🪪
+                      </button>
+                      <button 
+                        type="button"
+                        className="btn-tbl-action"
+                        onClick={() => navigate(`/personnel/${person.id}`)}
+                        title="View Profile"
+                      >
+                        👁️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
         )}
+        </table>
+      </div>
 
-        {isAdmin && showBulkUpload && (
-          <div className="personnel-detail-panel">
-            <div className="detail-header">
-              <h2>Bulk Upload Personnel</h2>
-              <button className="close-btn" onClick={() => setShowBulkUpload(false)}>×</button>
-            </div>
-            <div className="detail-body">
-              <p>Upload a CSV file containing personnel data. The CSV should have the following headers (case-insensitive):</p>
-              <ul style={{ fontSize: '0.9rem', marginBottom: '1rem', color: 'var(--gray-600)' }}>
-                <li>`Email` (required)</li>
-                <li>`Password` (required)</li>
-                <li>`LastName` (required)</li>
-                <li>`FirstName` (required)</li>
-                <li>`MiddleInitial` (optional)</li>
-                <li>`Extension` (optional, e.g. Jr., Sr., III)</li>
-                <li>`FullName` (legacy — used only if Last/First are empty)</li>
-                <li>`Position` (e.g. Teacher I)</li>
-                <li>`Role` (admin, teacher, staff)</li>
-                <li>`AssignedAncillary` (coordinator roles, clubs, committees)</li>
-                <li>`Specializations` (semicolon-separated, e.g. AP;English)</li>
-                {customFieldsConfig.map(f => (
-                  <li key={f.id}>`{f.label}` (Custom Field)</li>
-                ))}
-              </ul>
-              <button className="edit-btn" style={{ marginBottom: '1rem' }} onClick={generatePersonnelCSVTemplate}>
-                Download CSV Template
+      {/* Floating Bulk Action Toolbar */}
+      {selectedPersonnelIds.length > 0 && (
+        <div className="bulk-actions-toolbar">
+          <div className="bulk-toolbar-info">
+            <span className="bulk-count-badge">{selectedPersonnelIds.length}</span>
+            <span>staff members selected</span>
+          </div>
+
+          <div className="bulk-toolbar-actions">
+            <button 
+              type="button" 
+              className="bulk-btn btn-bulk-id"
+              onClick={() => handleOpenFacultyIds()}
+            >
+              🪪 Print Staff IDs
+            </button>
+
+            {isAdmin && (
+              <button 
+                type="button" 
+                className="bulk-btn btn-bulk-position"
+                onClick={() => setShowBulkPositionModal(true)}
+              >
+                🏷️ Update Position
               </button>
+            )}
+
+            <button 
+              type="button" 
+              className="bulk-btn btn-bulk-csv"
+              onClick={handleExportSF7CSV}
+            >
+              📥 Export SF7
+            </button>
+
+            <button 
+              type="button" 
+              className="bulk-btn btn-bulk-clear"
+              onClick={() => setSelectedPersonnelIds([])}
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Position Modal */}
+      {showBulkPositionModal && (
+        <div className="modal-overlay" onClick={() => setShowBulkPositionModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Update Position for {selectedPersonnelIds.length} Personnel</h2>
+              <button className="close-btn" onClick={() => setShowBulkPositionModal(false)}>&times;</button>
+            </div>
+            <div style={{ padding: '1rem 0' }}>
               <div className="form-group">
-                <label htmlFor="csvUpload">Select CSV File</label>
-                <input type="file" id="csvUpload" accept=".csv" onChange={handleBulkUpload} />
+                <label>Select New Position / Title *</label>
+                <select 
+                  value={bulkTargetPosition} 
+                  onChange={e => setBulkTargetPosition(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem' }}
+                >
+                  <option value="Teacher I">Teacher I</option>
+                  <option value="Teacher II">Teacher II</option>
+                  <option value="Teacher III">Teacher III</option>
+                  <option value="Master Teacher I">Master Teacher I</option>
+                  <option value="Master Teacher II">Master Teacher II</option>
+                  <option value="Head Teacher I">Head Teacher I</option>
+                  <option value="Head Teacher II">Head Teacher II</option>
+                  <option value="Head Teacher III">Head Teacher III</option>
+                  <option value="Principal I">Principal I</option>
+                  <option value="Administrative Officer II">Administrative Officer II</option>
+                  <option value="Administrative Assistant II">Administrative Assistant II</option>
+                  <option value="Administrative Aide VI">Administrative Aide VI</option>
+                </select>
               </div>
-              <div className="edit-actions">
-                <button className="cancel-btn" onClick={() => setShowBulkUpload(false)}>Cancel</button>
-              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button className="secondary-btn" onClick={() => setShowBulkPositionModal(false)}>Cancel</button>
+              <button className="primary-btn" onClick={handleBulkPositionSubmit} disabled={isBulkProcessing}>
+                {isBulkProcessing ? 'Updating...' : 'Apply Position'}
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Faculty ID Badges Modal */}
+      {showFacultyIdModal && (
+        <FacultyIdCardModal
+          personnelList={idCardTargetPersonnel}
+          settings={settings}
+          onClose={() => setShowFacultyIdModal(false)}
+        />
+      )}
     </div>
   );
 };

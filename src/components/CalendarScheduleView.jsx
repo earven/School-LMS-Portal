@@ -222,7 +222,10 @@ const CalendarScheduleView = ({ loads, sections, selectedDay, openEdit, handleDe
                       <div className="block-inner">
                         <div className="block-subject">{load.subject}</div>
                         <div className="block-teacher">{load.teacherName}</div>
-                        <div className="block-time">{formatTime(parsed.startTime)} - {formatTime(parsed.endTime)}</div>
+                        <div className="block-time">
+                          {formatTime(parsed.startTime)} - {formatTime(parsed.endTime)}
+                          {load.room && <span className="block-room"> • 📍 {load.room}</span>}
+                        </div>
                       </div>
                       {canEdit && handleDelete && (
                         <button 

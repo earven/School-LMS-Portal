@@ -1,9 +1,10 @@
 // src/context/SectionContext.jsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { useSettings } from './SettingsContext.jsx';
 import { db } from '../firebase';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc, deleteDoc, where, getDoc } from 'firebase/firestore';
+import { logAuditEvent, AUDIT_CATEGORIES, AUDIT_SEVERITY } from '../utils/auditLogger';
 
 const SectionContext = createContext(null);
 
@@ -85,16 +86,23 @@ export const SectionProvider = ({ children }) => {
 
   const addSection = async (newSection) => {
     try {
-      // Use setDoc with a custom ID (e.g., combining academicYear, gradeLevel and name)
       const sectionId = `${academicYear}-${newSection.gradeLevel}-${newSection.name}`;
       const sectionRef = doc(db, 'sections', sectionId);
       await setDoc(sectionRef, { ...newSection, id: sectionId, academicYear });
       console.log('Section added to Firestore:', sectionId);
 
-      // Synchronize with teacher record
       if (newSection.adviserId) {
         await addSectionToTeacher(newSection.adviserId, sectionId);
       }
+
+      logAuditEvent({
+        action: 'SECTION_CREATED',
+        category: AUDIT_CATEGORIES.SECTIONS,
+        details: `Created Section "${newSection.name}" (Grade ${newSection.gradeLevel}) for AY ${academicYear}`,
+        severity: AUDIT_SEVERITY.INFO,
+        targetId: sectionId,
+        actor: user
+      });
     } catch (e) {
       console.error('Error adding section:', e);
       setError('Failed to add section.');
@@ -111,7 +119,6 @@ export const SectionProvider = ({ children }) => {
       await updateDoc(sectionRef, updatedSection);
       console.log('Section updated in Firestore:', updatedSection.id);
 
-      // Synchronize with teacher records
       if (oldAdviserId !== newAdviserId) {
         if (oldAdviserId) {
           await removeSectionFromTeacher(oldAdviserId, updatedSection.id);
@@ -120,6 +127,15 @@ export const SectionProvider = ({ children }) => {
           await addSectionToTeacher(newAdviserId, updatedSection.id);
         }
       }
+
+      logAuditEvent({
+        action: 'SECTION_UPDATED',
+        category: AUDIT_CATEGORIES.SECTIONS,
+        details: `Updated Section "${updatedSection.name}" (Grade ${updatedSection.gradeLevel})`,
+        severity: AUDIT_SEVERITY.INFO,
+        targetId: updatedSection.id,
+        actor: user
+      });
     } catch (e) {
       console.error('Error updating section:', e);
       setError('Failed to update section.');
@@ -133,18 +149,35 @@ export const SectionProvider = ({ children }) => {
       await deleteDoc(sectionRef);
       console.log('Section deleted from Firestore:', id);
 
-      // Synchronize with teacher records
       if (oldSection?.adviserId) {
         await removeSectionFromTeacher(oldSection.adviserId, id);
       }
+
+      logAuditEvent({
+        action: 'SECTION_DELETED',
+        category: AUDIT_CATEGORIES.SECTIONS,
+        details: `Deleted Section "${oldSection?.name || id}" from AY ${academicYear}`,
+        severity: AUDIT_SEVERITY.WARNING,
+        targetId: id,
+        actor: user
+      });
     } catch (e) {
       console.error('Error deleting section:', e);
       setError('Failed to delete section.');
     }
   };
 
+  const contextValue = useMemo(() => ({
+    sections,
+    loading,
+    error,
+    addSection,
+    updateSection,
+    deleteSection
+  }), [sections, loading, error, academicYear, user]);
+
   return (
-    <SectionContext.Provider value={{ sections, loading, error, addSection, updateSection, deleteSection }}>
+    <SectionContext.Provider value={contextValue}>
       {children}
     </SectionContext.Provider>
   );

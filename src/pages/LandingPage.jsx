@@ -9,7 +9,6 @@ const LandingPage = () => {
   const { settings } = useSettings();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [scrolled, setScrolled] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
 
   const heroImages = settings.heroImages && settings.heroImages.length > 0
@@ -21,132 +20,152 @@ const LandingPage = () => {
 
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % heroImages.length);
-    }, 5000);
+    }, 7000);
 
     return () => clearInterval(timer);
   }, [heroImages.length]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 50);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
   return (
-    <div className="landing-container">
-      {/* Navbar */}
-      <nav className={`landing-nav ${scrolled ? 'scrolled' : ''}`}>
-        <div className="nav-content">
-          <div className="nav-logo">
-            {settings.schoolLogo ? (
-              <img src={settings.schoolLogo} alt="Logo" className="nav-logo-img" />
-            ) : (
-              <span className="nav-logo-icon">🎓</span>
-            )}
-            <span className="nav-school-name">{settings.schoolName || 'School Portal'}</span>
-          </div>
-          <div className="nav-actions">
-            <Link to={user ? "/dashboard" : "/login"} className="login-btn">
-              {user ? "Dashboard" : "Sign In"}
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* Hero Section */}
-      <header className="hero">
+    <div className="admin-portal-landing">
+      {/* Background Slideshow with Cinematic Blur Overlay */}
+      <div className="landing-bg-container">
         {heroImages.map((img, idx) => (
-          <img
+          <div
             key={idx}
-            src={img}
-            alt="School Hero Background"
-            className={`hero-slide ${idx === currentSlide ? 'active' : ''}`}
+            className={`landing-bg-slide ${idx === currentSlide ? 'active' : ''}`}
+            style={{ backgroundImage: `url(${img})` }}
           />
         ))}
-        <div className="hero-overlay"></div>
-        <div className="hero-content">
-          <h1 className="hero-title animate-up delay-1">
-            Welcome to <span className="highlight">{settings.schoolName}</span>
-          </h1>
-          <p className="hero-description animate-up delay-2">
-            {settings.description || 'Access the unified portal for students, teachers, and administrators.'}
-          </p>
-          <div className="hero-buttons animate-up delay-3">
-            <button onClick={() => navigate(user ? '/dashboard' : '/login')} className="cta-primary">
-              {user ? "Go to Dashboard" : "Enter Portal"}
-            </button>
+        <div className="landing-bg-overlay" />
+        <div className="landing-bg-vignette" />
+      </div>
+
+      {/* Top Header Bar */}
+      <header className="admin-topbar">
+        <div className="topbar-left">
+          {settings.schoolLogo ? (
+            <img src={settings.schoolLogo} alt="School Seal" className="topbar-logo" />
+          ) : (
+            <div className="topbar-logo-icon">🏛️</div>
+          )}
+          <div className="topbar-brand">
+            <span className="topbar-school-name">{settings.schoolName || 'Vinapor National High School'}</span>
+            <span className="topbar-deped-tag">
+              {settings.division ? `DepEd Division of ${settings.division}` : 'Department of Education'}
+              {settings.schoolId && ` • School ID: ${settings.schoolId}`}
+            </span>
           </div>
         </div>
+
+        <div className="topbar-right">
+          <div className="topbar-badge">
+            <span className="live-status-indicator"></span>
+            <span>SY {settings.academicYear || '2025–2026'}</span>
+          </div>
+          <Link to={user ? "/dashboard" : "/login"} className="topbar-action-btn">
+            {user ? "Go to Dashboard" : "Sign In"}
+          </Link>
+        </div>
+      </header>
+
+      {/* Main Single-Page Central Card */}
+      <main className="admin-main-viewport">
+        <div className="portal-gateway-card animate-card-appear">
+          {/* Card Header Badge */}
+          <div className="portal-gateway-header">
+            <div className="gateway-seal-wrapper">
+              {settings.schoolLogo ? (
+                <img src={settings.schoolLogo} alt="Logo" className="gateway-seal" />
+              ) : (
+                <div className="gateway-seal-icon">🎓</div>
+              )}
+            </div>
+            <div className="gateway-header-text">
+              <span className="gateway-eyebrow">School Management & Information Portal</span>
+              <h1 className="gateway-title">{settings.schoolName || 'Vinapor National High School'}</h1>
+            </div>
+          </div>
+
+          <p className="gateway-description">
+            {settings.description || 'Secure administrative workspace for faculty operations, electronic grading (DO 15, s. 2026), automated DepEd School Forms (SF1, SF2, SF9), student masterlists, and personnel records.'}
+          </p>
+
+          {/* Quick System Metrics Row */}
+          <div className="gateway-meta-strip">
+            <div className="meta-pill">
+              <span className="meta-pill-label">Academic Year</span>
+              <span className="meta-pill-val">{settings.academicYear || '2025–2026'}</span>
+            </div>
+            <div className="meta-pill">
+              <span className="meta-pill-label">Term Encoding</span>
+              <span className="meta-pill-val active">{settings.activeTerm || settings.activeQuarter || 'T1'} Active</span>
+            </div>
+            <div className="meta-pill">
+              <span className="meta-pill-label">Form Engine</span>
+              <span className="meta-pill-val">SF1 • SF2 • SF9</span>
+            </div>
+          </div>
+
+          {/* Main Action Buttons */}
+          <div className="gateway-actions">
+            <button
+              onClick={() => navigate(user ? '/dashboard' : '/login')}
+              className="gateway-primary-btn"
+            >
+              <svg className="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+              </svg>
+              <span>{user ? "Open Admin Dashboard" : "Sign In to Admin Portal"}</span>
+            </button>
+
+            {!user && (
+              <Link to="/join" className="gateway-secondary-btn">
+                <span>Join School as Faculty</span>
+                <span className="secondary-arrow">→</span>
+              </Link>
+            )}
+          </div>
+
+          {/* Institutional Signatory Line */}
+          {settings.principalName && (
+            <div className="gateway-signatory">
+              <span className="signatory-title">{settings.principalTitle || 'School Principal'}</span>
+              <span className="signatory-name">{settings.principalName}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Slide navigation if multiple hero images */}
         {heroImages.length > 1 && (
-          <div className="slide-indicators">
+          <div className="hero-slide-nav">
             {heroImages.map((_, idx) => (
-              <span
+              <button
                 key={idx}
-                className={`indicator ${idx === currentSlide ? 'active' : ''}`}
+                aria-label={`Switch to slide ${idx + 1}`}
+                className={`slide-nav-dot ${idx === currentSlide ? 'active' : ''}`}
                 onClick={() => setCurrentSlide(idx)}
               />
             ))}
           </div>
         )}
-      </header>
+      </main>
 
-      {/* Featured Gallery Section */}
-      {settings.featuredGallery && settings.featuredGallery.length > 0 && (
-        <section className="featured-gallery-section" style={{ padding: '4rem 2rem', background: 'var(--gray-50)', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '2rem', marginBottom: '1rem', color: 'var(--gray-900)' }}>Featured Highlights</h2>
-          <p style={{ color: 'var(--gray-600)', marginBottom: '2rem' }}>Glimpses of our vibrant school community.</p>
-          <div className="gallery-grid" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-            gap: '1.5rem',
-            maxWidth: '1200px',
-            margin: '0 auto'
-          }}>
-            {settings.featuredGallery.map((img, idx) => (
-              <div key={idx} className="gallery-item" style={{
-                overflow: 'hidden',
-                borderRadius: '12px',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                aspectRatio: '4/3'
-              }}>
-                <img src={img} alt={`Featured ${idx + 1}`} style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  transition: 'transform 0.3s ease'
-                }} 
-                onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-                onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Footer */}
-      <footer className="landing-footer">
-        <div className="footer-content">
-          <div className="footer-brand">
-            <h3>{settings.schoolName}</h3>
-            <p>{settings.motto}</p>
-          </div>
-          <div className="footer-links">
-            <div className="footer-col">
-              <h4>Platform</h4>
-              <Link to={user ? "/dashboard" : "/login"}>{user ? "Dashboard" : "Login"}</Link>
-            </div>
-            <div className="footer-col">
-              <h4>Support</h4>
-              <a href="mailto:support@school.edu">Contact Us</a>
-              <a href="#">Help Center</a>
-            </div>
-          </div>
+      {/* Compact Single-Page Footer */}
+      <footer className="admin-bottom-bar">
+        <div className="bottom-bar-left">
+          <span>© {new Date().getFullYear()} {settings.schoolName || 'Vinapor National High School'}. All rights reserved.</span>
         </div>
-        <div className="footer-bottom">
-          <p>© {new Date().getFullYear()} {settings.schoolName}. All rights reserved.</p>
+        <div className="bottom-bar-center">
+          <span>🔒 Compliant with Republic Act 10173 (Data Privacy Act of 2012)</span>
+        </div>
+        <div className="bottom-bar-right">
+          <Link to="/privacy-policy" className="footer-link">Privacy Policy</Link>
+          {settings.email && (
+            <>
+              <span className="footer-sep">•</span>
+              <a href={`mailto:${settings.email}`} className="footer-link">Contact Support</a>
+            </>
+          )}
         </div>
       </footer>
     </div>

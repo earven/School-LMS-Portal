@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { usePersonnel } from '../../context/PersonnelContext';
 import { useAttendance } from '../../context/AttendanceContext';
@@ -37,7 +37,7 @@ const TeacherAttendance = () => {
   const [remarks, setRemarks] = useState({}); // Key: "teacherId_date", Value: remark string
 
   // Fetch data on changes
-  const loadAttendanceData = async () => {
+  const loadAttendanceData = useCallback(async () => {
     setLoading(true);
     const res = await fetchTeacherAttendance(selectedMonth);
     if (res.success) {
@@ -54,11 +54,11 @@ const TeacherAttendance = () => {
       setRemarks(remarksMap);
     }
     setLoading(false);
-  };
+  }, [selectedMonth, fetchTeacherAttendance]);
 
   useEffect(() => {
     loadAttendanceData();
-  }, [selectedMonth]);
+  }, [loadAttendanceData]);
 
   // Derived state: Map of logs by teacherId and date
   const logsMap = useMemo(() => {

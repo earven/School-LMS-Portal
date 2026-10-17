@@ -1,223 +1,75 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useSubmissions } from '../../context/SubmissionContext';
 import { useAuth } from '../../context/AuthContext';
 import { usePersonnel } from '../../context/PersonnelContext';
 import { useSections } from '../../context/SectionContext';
+import { useSettings } from '../../context/SettingsContext';
+
+import { formatDateTime, getDeadlineCountdown, TASK_CATEGORIES } from './SubmissionComponents/submissionUtils';
+import SubmissionCreateModal from './SubmissionComponents/SubmissionCreateModal';
+import SubmissionDetailModal from './SubmissionComponents/SubmissionDetailModal';
+import SubmissionPrintReportModal from './SubmissionComponents/SubmissionPrintReportModal';
+import SubmissionTaskCard from './SubmissionComponents/SubmissionTaskCard';
+import SubmissionTableView from './SubmissionComponents/SubmissionTableView';
+import FacultyComplianceMatrix from './SubmissionComponents/FacultyComplianceMatrix';
+import EmptyState from '../../components/EmptyState';
+import CardSkeleton from '../../components/CardSkeleton';
+import TableSkeleton from '../../components/TableSkeleton';
+
 import './SubmissionTracker.css';
 
-const formatDate = (dateInput) => {
-  if (!dateInput) return 'N/A';
-  
-  let date;
-  if (dateInput && typeof dateInput.toDate === 'function') {
-    date = dateInput.toDate();
-  } else if (dateInput instanceof Date) {
-    date = dateInput;
-  } else {
-    if (typeof dateInput === 'string' && dateInput.includes('-')) {
-      const parts = dateInput.split('-');
-      if (parts.length === 3) {
-        date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-      }
-    }
-    if (!date) {
-      date = new Date(dateInput);
-    }
-  }
-  
-  if (isNaN(date.getTime())) return 'N/A';
-  
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const y = date.getFullYear();
-  return `${m}-${d}-${y}`;
-};
-
-const formatDateTime = (dateInput) => {
-  if (!dateInput) return 'N/A';
-  let date = (dateInput && typeof dateInput.toDate === 'function') ? dateInput.toDate() : new Date(dateInput);
-  if (isNaN(date.getTime())) return 'N/A';
-  
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const y = date.getFullYear();
-  
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  const strTime = `${hours}:${minutes} ${ampm}`;
-  
-  return `${m}-${d}-${y}, ${strTime}`;
-};
-
-const detectLinkType = (url) => {
-  if (!url) return 'onedrive';
-  const lowerUrl = url.toLowerCase();
-  if (lowerUrl.includes('docs.google.com/forms') || lowerUrl.includes('forms.gle') || lowerUrl.includes('jotform.com') || lowerUrl.includes('cognitoforms.com') || lowerUrl.includes('form')) {
-    return 'form';
-  }
-  if (lowerUrl.includes('survey') || lowerUrl.includes('typeform.com') || lowerUrl.includes('survey-monkey') || lowerUrl.includes('surveymonkey.com')) {
-    return 'survey';
-  }
-  if (lowerUrl.includes('drive.google.com') || lowerUrl.includes('google.com/drive')) {
-    return 'googledrive';
-  }
-  if (lowerUrl.includes('onedrive') || lowerUrl.includes('sharepoint.com') || lowerUrl.includes('dropbox.com')) {
-    return 'onedrive';
-  }
-  return 'general';
-};
-
-const getLinkIndicator = (task) => {
-  const type = task.linkType || detectLinkType(task.folderLink);
-  switch (type) {
-    case 'form':
-      return { label: 'Form Link Attached', icon: '📝' };
-    case 'survey':
-      return { label: 'Survey Link Attached', icon: '📋' };
-    case 'onedrive':
-      return { label: 'Shared Folder Attached', icon: '📂' };
-    case 'googledrive':
-      return { label: 'Google Drive Attached', icon: '📁' };
-    default:
-      return { label: 'External Link Attached', icon: '🔗' };
-  }
-};
-
-const getLinkButtonProps = (task) => {
-  const type = task.linkType || detectLinkType(task.folderLink);
-  switch (type) {
-    case 'form':
-      return { label: 'Fill out Google Form', icon: '📝' };
-    case 'survey':
-      return { label: 'Open Survey Link', icon: '📋' };
-    case 'onedrive':
-      return { label: 'Open OneDrive Submission Folder', icon: '📁' };
-    case 'googledrive':
-      return { label: 'Open Google Drive Folder', icon: '📁' };
-    default:
-      return { label: 'Open External Link', icon: '🔗' };
-  }
-};
-
-const getBannerProps = (task) => {
-  const type = task.linkType || detectLinkType(task.folderLink);
-  switch (type) {
-    case 'form':
-      return {
-        title: 'External Form Submission',
-        text: 'Please open the form link above and fill it out, then confirm your submission details below if needed.',
-        icon: '📝'
-      };
-    case 'survey':
-      return {
-        title: 'Survey Participation',
-        text: 'Please click the survey link above to complete the survey, then document any details below.',
-        icon: '📋'
-      };
-    case 'onedrive':
-      return {
-        title: 'OneDrive Upload',
-        text: task.folderLink 
-          ? "Please upload your report to the designated OneDrive folder above, then paste your file's specific sharing link below."
-          : "Upload your report to OneDrive and paste the shared link below.",
-        icon: '☁️'
-      };
-    case 'googledrive':
-      return {
-        title: 'Google Drive Upload',
-        text: task.folderLink 
-          ? "Please upload your report to the designated Google Drive folder above, then paste your file's specific sharing link below."
-          : "Upload your report to Google Drive and paste the shared link below.",
-        icon: '📁'
-      };
-    default:
-      return {
-        title: 'External Link Submission',
-        text: 'Follow the link above to submit your report or information, then paste the submission proof or link below.',
-        icon: '🔗'
-      };
-  }
-};
-
 const SubmissionTracker = () => {
-  const { tasks, responses, createTask, updateTask, submitResponse, deleteTask, reviewResponse } = useSubmissions();
+  const { 
+    tasks, 
+    responses, 
+    loading,
+    createTask, 
+    updateTask, 
+    submitResponse, 
+    deleteTask, 
+    toggleArchiveTask,
+    reviewResponse, 
+    batchReviewResponses, 
+    sendTaskReminder 
+  } = useSubmissions();
   const { user } = useAuth();
-  const { personnel } = usePersonnel(); // For selecting specific recipients
+  const { personnel } = usePersonnel();
   const { sections } = useSections();
+  const { settings } = useSettings();
   
-  const adviserIds = new Set(sections.map(s => s.adviserId).filter(Boolean));
+  const adviserIds = useMemo(() => new Set(sections.map(s => s.adviserId).filter(Boolean)), [sections]);
   const isTeacherAdviser = adviserIds.has(user?.uid);
+  const isAdmin = ['admin', 'system_admin'].includes(user?.role);
   
+  // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isEditingTask, setIsEditingTask] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
-  
-  const [newTask, setNewTask] = useState({
-    title: '',
-    description: '',
-    deadline: '',
-    recipients: 'all',
-    folderLink: '',
-    linkType: 'onedrive'
-  });
 
-  const [responseForm, setResponseForm] = useState({
-    remarks: '',
-    link: ''
-  });
+  const [showPrintReportModal, setShowPrintReportModal] = useState(false);
 
-  const [isEditingTask, setIsEditingTask] = useState(false);
-  const [editTaskId, setEditTaskId] = useState(null);
-
-  // New Search & Filter States
+  // Tabs, Search, Category & Filter state
+  const [activeTab, setActiveTab] = useState('active'); // 'active' | 'archived'
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table' | 'matrix'
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('deadline-asc'); // 'deadline-asc' | 'deadline-desc' | 'created-desc' | 'title-asc' | 'compliance-asc' | 'compliance-desc'
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [adminResponseFilter, setAdminResponseFilter] = useState('all'); // 'all', 'submitted', 'pending'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'submitted' | 'overdue' | 'revision'
+  const [sendingReminders, setSendingReminders] = useState(false);
 
-  // Admin submission review state
-  const [selectedResponse, setSelectedResponse] = useState(null);
-  const [reviewForm, setReviewForm] = useState({
-    status: 'Approved',
-    feedback: ''
-  });
-
-  // Toast state
+  // Toast notification state
   const [toast, setToast] = useState(null);
 
   const showToastMsg = (message, type = 'success') => {
     setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 4500);
+    setTimeout(() => setToast(null), 4500);
   };
 
-  const handleSelectResponse = (row) => {
-    if (!row.response) return; // Can't review what has not been submitted
-    setSelectedResponse(row.response);
-    setReviewForm({
-      status: row.response.status || 'Approved',
-      feedback: row.response.feedback || ''
-    });
-  };
-
-  const handleSaveReview = async (e) => {
-    e.preventDefault();
-    try {
-      await reviewResponse(selectedResponse.id, reviewForm);
-      setSelectedResponse(null);
-      showToastMsg('Submission reviewed successfully!', 'success');
-    } catch (err) {
-      showToastMsg('Failed to save review: ' + err.message, 'error');
-    }
-  };
-
-  const isAdmin = ['admin', 'system_admin'].includes(user?.role);
-
-  const getTargetTeachers = (task) => {
-    const allTeachers = personnel.filter(p => p.role === 'teacher');
+  const getTargetTeachers = useCallback((task) => {
+    const allTeachers = personnel.filter(p => ['teacher', 'admin', 'system_admin'].includes(p.role));
     if (!task) return [];
     if (task.recipients === 'all') return allTeachers;
     if (task.recipients === 'advisers') return allTeachers.filter(t => adviserIds.has(t.id));
@@ -233,147 +85,133 @@ const SubmissionTracker = () => {
       return allTeachers.filter(t => t.id === task.recipients);
     }
     return [];
+  }, [personnel, adviserIds]);
+
+  const getStatus = (taskId) => {
+    const response = responses.find(r => r.submissionId === taskId && r.userId === user?.uid);
+    return response ? (response.status || 'Submitted') : 'Pending';
   };
 
-  const openCreateModal = () => {
+  // Handlers
+  const handleOpenCreateModal = () => {
     setIsEditingTask(false);
-    setEditTaskId(null);
-    const allTeacherIds = personnel.filter(p => p.role === 'teacher').map(p => p.id);
-    setNewTask({ 
-      title: '', 
-      description: '', 
-      deadline: '', 
-      recipients: allTeacherIds, 
-      folderLink: '', 
-      linkType: 'onedrive' 
-    });
+    setEditingTask(null);
     setShowCreateModal(true);
   };
 
-  const openEditModal = (task, e) => {
+  const handleOpenEditModal = (task, e) => {
     e.stopPropagation();
     setIsEditingTask(true);
-    setEditTaskId(task.id);
-    setNewTask({
-      title: task.title || '',
-      description: task.description || '',
-      deadline: task.deadline || '',
-      recipients: task.recipients || 'all',
-      folderLink: task.folderLink || '',
-      linkType: task.linkType || detectLinkType(task.folderLink)
-    });
+    setEditingTask(task);
     setShowCreateModal(true);
   };
 
-  const handleQuickSelect = (type) => {
-    const allTeachers = personnel.filter(p => p.role === 'teacher');
-    if (type === 'all') {
-      setNewTask(prev => ({ ...prev, recipients: allTeachers.map(t => t.id) }));
-    } else if (type === 'none') {
-      setNewTask(prev => ({ ...prev, recipients: [] }));
-    } else if (type === 'advisers') {
-      const targeted = allTeachers.filter(t => adviserIds.has(t.id)).map(t => t.id);
-      setNewTask(prev => ({ ...prev, recipients: targeted }));
-    } else if (type === 'non-advisers') {
-      const targeted = allTeachers.filter(t => !adviserIds.has(t.id)).map(t => t.id);
-      setNewTask(prev => ({ ...prev, recipients: targeted }));
-    } else if (type.startsWith('subject:')) {
-      const sub = type.replace('subject:', '');
-      const targeted = allTeachers.filter(t => (t.subjects || []).includes(sub)).map(t => t.id);
-      setNewTask(prev => ({ ...prev, recipients: targeted }));
-    }
-  };
-
-  const handleTeacherCheckboxChange = (teacherId, checked) => {
-    const allTeachers = personnel.filter(p => p.role === 'teacher');
-    let currentRecipients = [];
-    
-    if (Array.isArray(newTask.recipients)) {
-      currentRecipients = [...newTask.recipients];
-    } else if (newTask.recipients === 'all') {
-      currentRecipients = allTeachers.map(t => t.id);
-    } else if (newTask.recipients === 'advisers') {
-      currentRecipients = allTeachers.filter(t => adviserIds.has(t.id)).map(t => t.id);
-    } else if (newTask.recipients === 'non-advisers') {
-      currentRecipients = allTeachers.filter(t => !adviserIds.has(t.id)).map(t => t.id);
-    } else if (typeof newTask.recipients === 'string' && newTask.recipients.startsWith('subject:')) {
-      const sub = newTask.recipients.replace('subject:', '');
-      currentRecipients = allTeachers.filter(t => (t.subjects || []).includes(sub)).map(t => t.id);
-    } else if (newTask.recipients) {
-      currentRecipients = [newTask.recipients];
-    }
-    
-    if (checked) {
-      if (!currentRecipients.includes(teacherId)) {
-        currentRecipients.push(teacherId);
+  const handleDeleteTask = async (taskId, e) => {
+    e.stopPropagation();
+    if (window.confirm('Delete this submission task for all teachers?')) {
+      try {
+        await deleteTask(taskId);
+        showToastMsg('Submission task deleted.', 'info');
+      } catch (err) {
+        showToastMsg('Failed to delete task: ' + err.message, 'error');
       }
-    } else {
-      currentRecipients = currentRecipients.filter(id => id !== teacherId);
     }
-    
-    setNewTask(prev => ({ ...prev, recipients: currentRecipients }));
   };
 
-  const handleCreateTask = async (e) => {
-    e.preventDefault();
+  const handleCreateOrUpdateTask = async (taskData) => {
     try {
-      if (isEditingTask) {
-        await updateTask(editTaskId, newTask);
+      if (isEditingTask && editingTask) {
+        await updateTask(editingTask.id, taskData);
         showToastMsg('Submission task updated successfully!', 'success');
       } else {
-        await createTask(newTask);
+        await createTask(taskData);
         showToastMsg('Submission task created and sent to teachers!', 'success');
       }
       setShowCreateModal(false);
-      setNewTask({ title: '', description: '', deadline: '', recipients: [], folderLink: '', linkType: 'onedrive' });
-      setEditTaskId(null);
+      setEditingTask(null);
       setIsEditingTask(false);
     } catch (err) {
       showToastMsg(`Failed to ${isEditingTask ? 'update' : 'create'} task: ${err?.message || 'Please check permissions.'}`, 'error');
     }
   };
 
-  const handleSubmitResponse = async (e) => {
-    e.preventDefault();
+  const handleTeacherSubmit = async (formData) => {
     try {
-      await submitResponse(selectedTask.id, responseForm);
+      await submitResponse(selectedTask.id, formData);
       setShowDetailModal(false);
-      setResponseForm({ remarks: '', link: '' });
       showToastMsg('Report submitted successfully!', 'success');
     } catch (err) {
       showToastMsg('Failed to submit report: ' + err.message, 'error');
     }
   };
 
-  const getStatus = (taskId) => {
-    const response = responses.find(r => r.submissionId === taskId && r.userId === user.uid);
-    return response ? response.status : 'Pending';
+  const handleAdminReview = async (responseId, reviewData) => {
+    try {
+      await reviewResponse(responseId, reviewData);
+      showToastMsg('Submission reviewed successfully!', 'success');
+    } catch (err) {
+      showToastMsg('Failed to save review: ' + err.message, 'error');
+    }
   };
 
-  const getAdminStats = (task) => {
-    const targets = getTargetTeachers(task);
-    const targetIds = new Set(targets.map(t => t.id));
-    const submittedCount = responses.filter(r => r.submissionId === task.id && targetIds.has(r.userId)).length;
-    
-    return {
-      count: submittedCount,
-      total: targets.length
-    };
+  const handleBatchApprove = async (selectedResponseIds) => {
+    try {
+      await batchReviewResponses(selectedResponseIds, {
+        status: 'Approved',
+        feedback: 'Batch approved by Administrator'
+      });
+      showToastMsg(`Successfully approved ${selectedResponseIds.length} submissions!`, 'success');
+    } catch (err) {
+      showToastMsg('Failed to batch approve: ' + err.message, 'error');
+    }
   };
 
-  const handleExportResponses = () => {
+  const handleSendReminders = async () => {
+    if (!selectedTask) return;
+    const targets = getTargetTeachers(selectedTask);
+    const taskResponses = responses.filter(r => r.submissionId === selectedTask.id);
+    const submittedUserIds = new Set(taskResponses.map(r => r.userId));
+    const pendingTargets = targets.filter(t => !submittedUserIds.has(t.id));
+    const pendingIds = pendingTargets.map(t => t.id);
+
+    if (pendingIds.length === 0) {
+      showToastMsg('All targeted teachers have already submitted!', 'info');
+      return;
+    }
+
+    setSendingReminders(true);
+    try {
+      const count = await sendTaskReminder(selectedTask.id, pendingIds);
+      showToastMsg(`📢 Sent reminder notifications to ${count} pending teachers!`, 'success');
+    } catch (err) {
+      showToastMsg('Failed to send reminders: ' + err.message, 'error');
+    } finally {
+      setSendingReminders(false);
+    }
+  };
+
+  const handleSendSingleReminder = async (taskId, userIds) => {
+    try {
+      const count = await sendTaskReminder(taskId, userIds);
+      showToastMsg(`📢 Sent reminder notification to faculty member!`, 'success');
+    } catch (err) {
+      showToastMsg('Failed to send reminder: ' + err.message, 'error');
+    }
+  };
+
+  const handleExportCSV = () => {
     if (!selectedTask) return;
     const targets = getTargetTeachers(selectedTask);
     const taskResponses = responses.filter(r => r.submissionId === selectedTask.id);
     const responseMap = new Map(taskResponses.map(r => [r.userId, r]));
 
-    const headers = ['Teacher Name', 'Email', 'Role/Position', 'Status', 'Date Submitted', 'Link', 'Remarks'];
+    const headers = ['Teacher Name', 'Email', 'Role/Position', 'Status', 'Date Submitted', 'Link', 'Remarks', 'Admin Feedback'];
     const csvContent = [
       headers.join(','),
       ...targets.map(t => {
         const resp = responseMap.get(t.id);
         const isOverdue = new Date(selectedTask.deadline) < new Date() && !resp;
-        const status = resp ? 'Submitted' : (isOverdue ? 'Overdue' : 'Pending');
+        const status = resp ? (resp.status || 'Submitted') : (isOverdue ? 'Overdue' : 'Pending');
         return [
           `"${t.fullName || 'Unknown'}"`,
           `"${t.email || ''}"`,
@@ -381,7 +219,8 @@ const SubmissionTracker = () => {
           `"${status}"`,
           `"${resp ? formatDateTime(resp.submittedAt) : 'N/A'}"`,
           `"${resp?.link || ''}"`,
-          `"${(resp?.remarks || '').replace(/"/g, '""')}"`
+          `"${(resp?.remarks || '').replace(/"/g, '""')}"`,
+          `"${(resp?.feedback || '').replace(/"/g, '""')}"`
         ].join(',');
       })
     ].join('\n');
@@ -396,28 +235,341 @@ const SubmissionTracker = () => {
     document.body.removeChild(linkObj);
   };
 
+  // Archive / Restore Handler
+  const handleToggleArchive = async (taskId, isArchived, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await toggleArchiveTask(taskId, isArchived);
+      showToastMsg(`Task successfully ${isArchived ? 'archived' : 'restored to active'}!`, 'success');
+    } catch (err) {
+      showToastMsg(`Failed to ${isArchived ? 'archive' : 'restore'} task: ` + err.message, 'error');
+    }
+  };
+
+  // Determine user-accessible tasks first
+  const accessibleTasks = useMemo(() => {
+    return tasks.filter(task => {
+      if (isAdmin) return true;
+      if (task.recipients === 'all') return true;
+      if (task.recipients === 'advisers') return isTeacherAdviser;
+      if (task.recipients === 'non-advisers') return !isTeacherAdviser;
+      if (typeof task.recipients === 'string' && task.recipients.startsWith('subject:')) {
+        const sub = task.recipients.replace('subject:', '');
+        return (user?.subjects || []).includes(sub);
+      }
+      if (Array.isArray(task.recipients)) {
+        return task.recipients.includes(user?.uid);
+      }
+      return task.recipients === user?.uid;
+    });
+  }, [tasks, isAdmin, isTeacherAdviser, user]);
+
+  const { activeTasksCount, archivedTasksCount } = useMemo(() => {
+    let active = 0;
+    let archived = 0;
+    accessibleTasks.forEach(t => {
+      if (t.isArchived) archived++;
+      else active++;
+    });
+    return { activeTasksCount: active, archivedTasksCount: archived };
+  }, [accessibleTasks]);
+
+  // KPI Metrics calculation (only based on active tasks to prevent skewing)
+  const kpiMetrics = useMemo(() => {
+    const activeTasksList = accessibleTasks.filter(t => !t.isArchived);
+
+    if (isAdmin) {
+      let totalAssignedSlots = 0;
+      let totalSubmittedSlots = 0;
+      let totalApprovedSlots = 0;
+      let totalPendingReview = 0;
+      let totalOverdueSlots = 0;
+
+      activeTasksList.forEach(t => {
+        const targets = getTargetTeachers(t);
+        const targetIds = new Set(targets.map(x => x.id));
+        const tResponses = responses.filter(r => r.submissionId === t.id && targetIds.has(r.userId));
+        const submittedUserIds = new Set(tResponses.map(r => r.userId));
+
+        totalAssignedSlots += targets.length;
+        totalSubmittedSlots += tResponses.length;
+        totalApprovedSlots += tResponses.filter(r => r.status === 'Approved').length;
+        totalPendingReview += tResponses.filter(r => !r.status || r.status === 'Submitted').length;
+
+        const isTaskPastDeadline = new Date(t.deadline) < new Date();
+        if (isTaskPastDeadline) {
+          totalOverdueSlots += (targets.length - submittedUserIds.size);
+        }
+      });
+
+      const overallCompliance = totalAssignedSlots > 0 ? Math.round((totalSubmittedSlots / totalAssignedSlots) * 100) : 100;
+
+      return {
+        activeTasks: activeTasksList.length,
+        complianceRate: overallCompliance,
+        totalSubmitted: totalSubmittedSlots,
+        totalPending: Math.max(0, totalAssignedSlots - totalSubmittedSlots),
+        pendingReview: totalPendingReview,
+        overdue: totalOverdueSlots
+      };
+    } else {
+      let pending = 0;
+      let submitted = 0;
+      let approved = 0;
+      let needsRevision = 0;
+      let overdue = 0;
+
+      activeTasksList.forEach(t => {
+        const resp = responses.find(r => r.submissionId === t.id && r.userId === user?.uid);
+        const isPastDue = new Date(t.deadline) < new Date();
+
+        if (!resp) {
+          if (isPastDue) overdue++;
+          else pending++;
+        } else {
+          if (resp.status === 'Approved') approved++;
+          else if (resp.status === 'Needs Revision') needsRevision++;
+          else submitted++;
+        }
+      });
+
+      return {
+        total: activeTasksList.length,
+        pending,
+        submitted: submitted + approved,
+        approved,
+        needsRevision,
+        overdue
+      };
+    }
+  }, [isAdmin, accessibleTasks, responses, user, getTargetTeachers]);
+
+  // Filtered and Sorted tasks list
+  const filteredAndSortedTasks = useMemo(() => {
+    const list = accessibleTasks.filter(task => {
+      // 1. Tab filter (active vs archived)
+      const isArchived = Boolean(task.isArchived);
+      if (activeTab === 'archived' && !isArchived) return false;
+      if (activeTab === 'active' && isArchived) return false;
+
+      // 2. Category filter
+      if (categoryFilter !== 'All') {
+        const cat = task.category || 'General';
+        if (cat !== categoryFilter) return false;
+      }
+
+      // 3. Search query
+      const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            task.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            (task.category || '').toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+
+      // 4. Status filter
+      const status = isAdmin ? 'Admin' : getStatus(task.id);
+      const userResp = responses.find(r => r.submissionId === task.id && r.userId === user?.uid);
+      const countdown = getDeadlineCountdown(task.deadline);
+      const isOverdue = countdown.isOverdue && !userResp;
+      
+      let matchesStatus = true;
+      if (statusFilter === 'pending') matchesStatus = status === 'Pending' && !isOverdue;
+      else if (statusFilter === 'submitted') matchesStatus = status === 'Submitted' || status === 'Approved';
+      else if (statusFilter === 'overdue') matchesStatus = isOverdue;
+      else if (statusFilter === 'revision') matchesStatus = userResp?.status === 'Needs Revision';
+
+      return matchesStatus;
+    });
+
+    // 5. Sorting
+    list.sort((a, b) => {
+      if (sortBy === 'deadline-asc') {
+        return new Date(a.deadline || '9999-12-31') - new Date(b.deadline || '9999-12-31');
+      }
+      if (sortBy === 'deadline-desc') {
+        return new Date(b.deadline || '1970-01-01') - new Date(a.deadline || '1970-01-01');
+      }
+      if (sortBy === 'created-desc') {
+        const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+        const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+        return bTime - aTime;
+      }
+      if (sortBy === 'title-asc') {
+        return (a.title || '').localeCompare(b.title || '');
+      }
+      if (sortBy === 'compliance-asc' || sortBy === 'compliance-desc') {
+        const getRate = (t) => {
+          const targets = getTargetTeachers(t);
+          if (targets.length === 0) return 0;
+          const targetIds = new Set(targets.map(x => x.id));
+          const tResponses = responses.filter(r => r.submissionId === t.id && targetIds.has(r.userId));
+          return tResponses.length / targets.length;
+        };
+        const rateA = getRate(a);
+        const rateB = getRate(b);
+        return sortBy === 'compliance-asc' ? rateA - rateB : rateB - rateA;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [accessibleTasks, activeTab, categoryFilter, searchQuery, statusFilter, sortBy, isAdmin, responses, user, getTargetTeachers]);
 
   return (
     <div className="submission-tracker-container">
-      <div className="tracker-header">
+      {/* HEADER */}
+      <div className="tracker-header no-print">
         <div>
           <h1>Submission Tracker</h1>
-          <p className="subtitle">Monitoring {isAdmin ? 'Teacher' : 'Your'} Report Submissions</p>
+          <p className="subtitle">Monitoring {isAdmin ? 'Department & Teacher' : 'Your Assigned'} Report Submissions</p>
         </div>
         {isAdmin && (
-          <button className="create-task-btn" onClick={openCreateModal}>
+          <button type="button" className="create-task-btn" onClick={handleOpenCreateModal}>
             + Create New Submission Request
           </button>
         )}
       </div>
 
+      {/* TOP CONTROLS: TABS + VIEW MODE SWITCHER */}
+      <div className="tracker-top-controls no-print">
+        <div className="tracker-tabs-bar">
+          <button
+            type="button"
+            className={`tracker-tab-btn ${activeTab === 'active' ? 'active' : ''}`}
+            onClick={() => setActiveTab('active')}
+          >
+            📂 Active Deliverables <span className="tab-counter">{activeTasksCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`tracker-tab-btn ${activeTab === 'archived' ? 'active' : ''}`}
+            onClick={() => setActiveTab('archived')}
+          >
+            📦 Archived History <span className="tab-counter">{archivedTasksCount}</span>
+          </button>
+        </div>
+
+        <div className="view-mode-switcher">
+          <button
+            type="button"
+            className={`view-mode-btn ${viewMode === 'cards' ? 'active' : ''}`}
+            onClick={() => setViewMode('cards')}
+            title="Card Grid View"
+          >
+            🎴 Cards
+          </button>
+          <button
+            type="button"
+            className={`view-mode-btn ${viewMode === 'table' ? 'active' : ''}`}
+            onClick={() => setViewMode('table')}
+            title="Compact Table View"
+          >
+            📑 Table
+          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className={`view-mode-btn matrix-mode-btn ${viewMode === 'matrix' ? 'active' : ''}`}
+              onClick={() => setViewMode('matrix')}
+              title="Faculty Compliance Cross-Tab Matrix"
+            >
+              📊 Compliance Matrix
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* KPI METRICS OVERVIEW BAR */}
+      {activeTab === 'active' ? (
+        <div className="kpi-overview-bar no-print">
+          {isAdmin ? (
+            <>
+              <div className="kpi-card" onClick={() => setStatusFilter('all')}>
+                <div className="kpi-icon">📋</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.activeTasks}</span>
+                  <span className="kpi-label">Active Tasks</span>
+                </div>
+              </div>
+              <div className="kpi-card highlight-rate" onClick={() => setStatusFilter('all')}>
+                <div className="kpi-icon">📈</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.complianceRate}%</span>
+                  <span className="kpi-label">Faculty Compliance</span>
+                </div>
+              </div>
+              <div className="kpi-card" onClick={() => setStatusFilter('pending')}>
+                <div className="kpi-icon">⏳</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.totalPending}</span>
+                  <span className="kpi-label">Pending Responses</span>
+                </div>
+              </div>
+              <div className="kpi-card warning" onClick={() => setStatusFilter('overdue')}>
+                <div className="kpi-icon">⚠️</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.overdue}</span>
+                  <span className="kpi-label">Overdue Slots</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="kpi-card" onClick={() => setStatusFilter('all')}>
+                <div className="kpi-icon">📋</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.total}</span>
+                  <span className="kpi-label">Total Assigned</span>
+                </div>
+              </div>
+              <div className="kpi-card" onClick={() => setStatusFilter('pending')}>
+                <div className="kpi-icon">⏳</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.pending}</span>
+                  <span className="kpi-label">Pending Action</span>
+                </div>
+              </div>
+              <div className="kpi-card success" onClick={() => setStatusFilter('submitted')}>
+                <div className="kpi-icon">✅</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.submitted}</span>
+                  <span className="kpi-label">Submitted / Done</span>
+                </div>
+              </div>
+              {kpiMetrics.needsRevision > 0 && (
+                <div className="kpi-card alert-revision" onClick={() => setStatusFilter('revision')}>
+                  <div className="kpi-icon">✏️</div>
+                  <div className="kpi-info">
+                    <span className="kpi-value">{kpiMetrics.needsRevision}</span>
+                    <span className="kpi-label">Needs Revision</span>
+                  </div>
+                </div>
+              )}
+              <div className="kpi-card warning" onClick={() => setStatusFilter('overdue')}>
+                <div className="kpi-icon">⚠️</div>
+                <div className="kpi-info">
+                  <span className="kpi-value">{kpiMetrics.overdue}</span>
+                  <span className="kpi-label">Overdue Tasks</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="archived-info-banner no-print">
+          <div className="archived-banner-icon">📦</div>
+          <div className="archived-banner-text">
+            <h4>Archived Deliverables Archive</h4>
+            <p>You are viewing historical tasks and completed records. Active KPI metrics and reminders apply to active deliverables.</p>
+          </div>
+        </div>
+      )}
+
       {/* SEARCH AND FILTERS BAR */}
-      <div className="filters-bar">
+      <div className="filters-bar no-print">
         <div className="search-wrapper">
           <span className="search-icon">🔍</span>
           <input 
             type="text" 
-            placeholder="Search tasks by title or details..." 
+            placeholder="Search tasks by title, instructions, or category..." 
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="search-input"
@@ -425,559 +577,259 @@ const SubmissionTracker = () => {
         </div>
         <div className="status-filters">
           <button 
+            type="button"
             className={`filter-btn ${statusFilter === 'all' ? 'active' : ''}`}
             onClick={() => setStatusFilter('all')}
           >
-            All Tasks
+            All Status
           </button>
           <button 
+            type="button"
             className={`filter-btn ${statusFilter === 'pending' ? 'active' : ''}`}
             onClick={() => setStatusFilter('pending')}
           >
             Pending
           </button>
           <button 
+            type="button"
             className={`filter-btn ${statusFilter === 'submitted' ? 'active' : ''}`}
             onClick={() => setStatusFilter('submitted')}
           >
             Submitted
           </button>
           <button 
+            type="button"
             className={`filter-btn ${statusFilter === 'overdue' ? 'active' : ''}`}
             onClick={() => setStatusFilter('overdue')}
           >
             Overdue
           </button>
+          {!isAdmin && kpiMetrics.needsRevision > 0 && (
+            <button 
+              type="button"
+              className={`filter-btn revision-btn ${statusFilter === 'revision' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('revision')}
+            >
+              Needs Revision ({kpiMetrics.needsRevision})
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="task-grid">
-        {(() => {
-          const filteredTasks = tasks
-            .filter(task => {
-              if (isAdmin) return true;
-              if (task.recipients === 'all') return true;
-              if (task.recipients === 'advisers') return isTeacherAdviser;
-              if (task.recipients === 'non-advisers') return !isTeacherAdviser;
-              if (typeof task.recipients === 'string' && task.recipients.startsWith('subject:')) {
-                const sub = task.recipients.replace('subject:', '');
-                return (user?.subjects || []).includes(sub);
-              }
-              if (Array.isArray(task.recipients)) {
-                return task.recipients.includes(user?.uid);
-              }
-              return task.recipients === user?.uid;
-            })
-            .filter(task => {
-              const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                    task.description.toLowerCase().includes(searchQuery.toLowerCase());
-              
-              const status = isAdmin ? 'Admin' : getStatus(task.id);
-              const isOverdue = new Date(task.deadline) < new Date() && status === 'Pending';
-              
-              let matchesStatus = true;
-              if (statusFilter === 'pending') matchesStatus = status === 'Pending' && !isOverdue;
-              else if (statusFilter === 'submitted') matchesStatus = status === 'Submitted';
-              else if (statusFilter === 'overdue') matchesStatus = isOverdue;
+      {/* CATEGORY FILTER CHIPS & SORT DROPDOWN BAR */}
+      <div className="category-and-sort-bar no-print">
+        <div className="category-chips-list">
+          <span className="cat-filter-label">Category:</span>
+          {TASK_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              type="button"
+              className={`category-chip-btn ${categoryFilter === cat ? 'active' : ''}`}
+              onClick={() => setCategoryFilter(cat)}
+            >
+              {cat === 'All' ? '🌟 All' : cat}
+            </button>
+          ))}
+        </div>
+        <div className="sort-wrapper">
+          <label htmlFor="submission-sort-select" className="sort-label">Sort:</label>
+          <select
+            id="submission-sort-select"
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="sort-select"
+          >
+            <option value="deadline-asc">⏳ Deadline (Soonest first)</option>
+            <option value="deadline-desc">📅 Deadline (Furthest first)</option>
+            <option value="created-desc">✨ Newest Created</option>
+            <option value="title-asc">🔤 Title (A–Z)</option>
+            {isAdmin && <option value="compliance-asc">📉 Compliance (Lowest first)</option>}
+            {isAdmin && <option value="compliance-desc">📈 Compliance (Highest first)</option>}
+          </select>
+        </div>
+      </div>
 
-              return matchesSearch && matchesStatus;
-            });
-
-          if (filteredTasks.length === 0) {
-            return (
-              <div className="empty-state-card">
-                <div className="empty-state-icon">📋</div>
-                <h3>No Submission Tasks Found</h3>
-                <p>There are no tasks that match your search filters or target assignments.</p>
-              </div>
-            );
-          }
-
-          return filteredTasks.map(task => {
-            const status = isAdmin ? 'Admin' : getStatus(task.id);
-            const stats = isAdmin ? getAdminStats(task) : null;
-            const isOverdue = new Date(task.deadline) < new Date() && status === 'Pending';
-            
-            const isTargeted = task.recipients !== 'all';
-            const targetPerson = isTargeted && typeof task.recipients === 'string' ? personnel.find(p => p.id === task.recipients) : null;
-            const targetCount = Array.isArray(task.recipients) ? task.recipients.length : null;
-
-            return (
-              <div 
-                key={task.id} 
-                className={`task-card ${status.toLowerCase().replace(/\s+/g, '-')} ${isOverdue ? 'overdue' : ''}`}
-                onClick={() => {
-                  setSelectedTask(task);
-                  setAdminResponseFilter('all');
-                  setSelectedResponse(null); // Reset review inspector
-                  // Load response form values if teacher has already submitted
-                  const existingResponse = responses.find(r => r.submissionId === task.id && r.userId === user.uid);
-                  if (existingResponse) {
-                    setResponseForm({
-                      remarks: existingResponse.remarks || '',
-                      link: existingResponse.link || ''
-                    });
-                  } else {
-                    setResponseForm({ remarks: '', link: '' });
+      {/* VIEW MODES: MATRIX vs TABLE vs CARDS */}
+      {viewMode === 'matrix' && isAdmin ? (
+        <FacultyComplianceMatrix
+          tasks={filteredAndSortedTasks}
+          personnel={personnel}
+          responses={responses}
+          sections={sections}
+          adviserIds={adviserIds}
+          onSelectTaskForReview={(t) => {
+            setSelectedTask(t);
+            setShowDetailModal(true);
+          }}
+          onSendSingleReminder={handleSendSingleReminder}
+        />
+      ) : loading ? (
+        viewMode === 'table' ? (
+          <div className="submission-table-wrapper card">
+            <table className="submission-table">
+              <thead>
+                <tr>
+                  <th>Deliverable Title</th>
+                  <th>Category</th>
+                  <th>Target Faculty</th>
+                  <th>Deadline</th>
+                  <th>{isAdmin ? 'Compliance' : 'My Status'}</th>
+                  <th className="th-actions">Actions</th>
+                </tr>
+              </thead>
+              <TableSkeleton rows={6} columns={6} />
+            </table>
+          </div>
+        ) : (
+          <CardSkeleton count={6} />
+        )
+      ) : viewMode === 'table' ? (
+        filteredAndSortedTasks.length === 0 ? (
+          <EmptyState
+            icon={activeTab === 'archived' ? '📦' : '📋'}
+            title={activeTab === 'archived' ? 'No Archived Deliverables' : 'No Submission Tasks Found'}
+            description={
+              activeTab === 'archived'
+                ? 'Completed tasks that have been archived by administrators will appear here for compliance history.'
+                : searchQuery || categoryFilter !== 'All' || statusFilter !== 'all'
+                ? 'There are no deliverables matching your search or filter settings.'
+                : 'No submission deliverables have been assigned yet.'
+            }
+            actionLabel={
+              searchQuery || categoryFilter !== 'All' || statusFilter !== 'all'
+                ? 'Clear Filters'
+                : (isAdmin && activeTab !== 'archived')
+                ? '+ Create Submission Request'
+                : undefined
+            }
+            onAction={
+              searchQuery || categoryFilter !== 'All' || statusFilter !== 'all'
+                ? () => {
+                    setSearchQuery('');
+                    setCategoryFilter('All');
+                    setStatusFilter('all');
                   }
+                : (isAdmin && activeTab !== 'archived')
+                ? handleOpenCreateModal
+                : undefined
+            }
+          />
+        ) : (
+          <SubmissionTableView
+            tasks={filteredAndSortedTasks}
+            isAdmin={isAdmin}
+            user={user}
+            personnel={personnel}
+            responses={responses}
+            adviserIds={adviserIds}
+            onSelectTask={(t) => {
+              setSelectedTask(t);
+              setShowDetailModal(true);
+            }}
+            onEditTask={handleOpenEditModal}
+            onDeleteTask={handleDeleteTask}
+            onToggleArchive={isAdmin ? handleToggleArchive : undefined}
+          />
+        )
+      ) : (
+        /* TASK CARDS GRID */
+        filteredAndSortedTasks.length === 0 ? (
+          <EmptyState
+            icon={activeTab === 'archived' ? '📦' : '📋'}
+            title={activeTab === 'archived' ? 'No Archived Deliverables' : 'No Submission Tasks Found'}
+            description={
+              activeTab === 'archived'
+                ? 'Completed tasks that have been archived by administrators will appear here for compliance history.'
+                : searchQuery || categoryFilter !== 'All' || statusFilter !== 'all'
+                ? 'There are no deliverables matching your search or filter settings.'
+                : 'No submission deliverables have been assigned yet.'
+            }
+            actionLabel={
+              searchQuery || categoryFilter !== 'All' || statusFilter !== 'all'
+                ? 'Clear Filters'
+                : (isAdmin && activeTab !== 'archived')
+                ? '+ Create Submission Request'
+                : undefined
+            }
+            onAction={
+              searchQuery || categoryFilter !== 'All' || statusFilter !== 'all'
+                ? () => {
+                    setSearchQuery('');
+                    setCategoryFilter('All');
+                    setStatusFilter('all');
+                  }
+                : (isAdmin && activeTab !== 'archived')
+                ? handleOpenCreateModal
+                : undefined
+            }
+          />
+        ) : (
+          <div className="task-grid">
+            {filteredAndSortedTasks.map(task => (
+              <SubmissionTaskCard
+                key={task.id}
+                task={task}
+                isAdmin={isAdmin}
+                user={user}
+                personnel={personnel}
+                responses={responses}
+                adviserIds={adviserIds}
+                onSelectTask={(t) => {
+                  setSelectedTask(t);
                   setShowDetailModal(true);
                 }}
-              >
-                <div className="task-card-header">
-                  <span className={`status-badge ${status.toLowerCase().replace(/\s+/g, '-')}`}>
-                    {isAdmin ? `${stats.count} / ${stats.total} Submitted` : status}
-                  </span>
-                  <span className="deadline-tag">Due: {formatDate(task.deadline)}</span>
-                </div>
-                <h3>{task.title}</h3>
-                {isAdmin && (
-                  <p className="task-target-badge">
-                    {task.recipients === 'all' && '🎯 Target: All Teachers'}
-                    {task.recipients === 'advisers' && '🎯 Target: Advisers Only'}
-                    {task.recipients === 'non-advisers' && '🎯 Target: Non-Advisers Only'}
-                    {typeof task.recipients === 'string' && task.recipients.startsWith('subject:') && `🎯 Target: ${task.recipients.replace('subject:', '').toUpperCase()} Teachers Only`}
-                    {targetPerson && `🎯 Target: ${targetPerson.fullName || targetPerson.email}`}
-                    {targetCount && `🎯 Target: ${targetCount} Selected Teachers`}
-                  </p>
-                )}
-
-                {/* Progress bar for admin */}
-                {isAdmin && stats && (
-                  <div className="progress-container">
-                    <div className="progress-bar-label">
-                      <span>Completion Rate</span>
-                      <span>{stats.total > 0 ? Math.round((stats.count / stats.total) * 100) : 0}%</span>
-                    </div>
-                    <div className="progress-track">
-                      <div 
-                        className="progress-fill" 
-                        style={{ width: `${stats.total > 0 ? (stats.count / stats.total) * 100 : 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-
-                {isOverdue && !isAdmin && <div className="overdue-warning-tag">⚠️ OVERDUE</div>}
-
-                <p className="task-desc">{task.description}</p>
-                {task.folderLink && (() => {
-                  const indicator = getLinkIndicator(task);
-                  return (
-                    <div className="task-folder-indicator">
-                      {indicator.icon} {indicator.label}
-                    </div>
-                  );
-                })()}
-                <div className="task-footer">
-                  <span className="created-at">Sent: {formatDate(task.createdAt)}</span>
-                  {isAdmin && (
-                    <div className="task-actions">
-                      <button className="edit-task-icon" onClick={(e) => openEditModal(task, e)}>✏️</button>
-                      <button className="delete-task-icon" onClick={(e) => {
-                        e.stopPropagation();
-                        if(window.confirm('Delete this task?')) deleteTask(task.id);
-                      }}>🗑️</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          });
-        })()}
-      </div>
-
-      {/* CREATE TASK MODAL */}
-      {showCreateModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h2>{isEditingTask ? 'Edit Submission Request' : 'Create Submission Request'}</h2>
-              <button className="close-x" onClick={() => setShowCreateModal(false)}>✕</button>
-            </div>
-            <form onSubmit={handleCreateTask}>
-              <div className="modal-body-scroll">
-                <div className="form-group">
-                  <label>Task Title</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. SF2 Monthly Attendance" 
-                    required 
-                    value={newTask.title}
-                    onChange={e => setNewTask({...newTask, title: e.target.value})}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Instructions / Description</label>
-                  <textarea 
-                    placeholder="Provide details about the report..." 
-                    required
-                    value={newTask.description}
-                    onChange={e => setNewTask({...newTask, description: e.target.value})}
-                  ></textarea>
-                </div>
-                <div className="form-group">
-                  <label>Submission Link / External Link (Optional)</label>
-                  <input 
-                    type="url" 
-                    placeholder="Paste OneDrive folder, Google Form, or survey link here..." 
-                    value={newTask.folderLink}
-                    onChange={e => {
-                      const url = e.target.value;
-                      setNewTask(prev => ({
-                        ...prev,
-                        folderLink: url,
-                        linkType: detectLinkType(url)
-                      }));
-                    }}
-                  />
-                  <p className="field-hint">Paste OneDrive folders, Google Forms, survey links, etc. The link type will be auto-detected, but you can change it below.</p>
-                </div>
-                <div className="form-group">
-                  <label>Link Type</label>
-                  <select
-                    value={newTask.linkType || 'onedrive'}
-                    onChange={e => setNewTask({...newTask, linkType: e.target.value})}
-                  >
-                    <option value="onedrive">OneDrive Folder</option>
-                    <option value="googledrive">Google Drive Folder</option>
-                    <option value="form">Google Form / Form</option>
-                    <option value="survey">Survey Link</option>
-                    <option value="general">General URL</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Deadline</label>
-                  <div className={`date-input-wrapper ${newTask.deadline ? 'has-value' : ''}`}>
-                    <input 
-                      type="date" 
-                      required 
-                      value={newTask.deadline}
-                      onChange={e => setNewTask({...newTask, deadline: e.target.value})}
-                    />
-                    <span className="date-placeholder">MM-DD-YYYY</span>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Recipients Selection</label>
-                  <div className="recipient-custom-selector">
-                    <div className="quick-selectors">
-                      <span className="qs-label">Quick Select:</span>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('all')}>All</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('none')}>None</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('advisers')}>Advisers</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('non-advisers')}>Non-Advisers</button>
-                      <div className="qs-divider"></div>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:ap')}>AP</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:english')}>English</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:filipino')}>Filipino</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:math')}>Math</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:science')}>Science</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:mapeh')}>MAPEH</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:tle')}>TLE</button>
-                      <button type="button" className="qs-btn" onClick={() => handleQuickSelect('subject:esp')}>EsP</button>
-                    </div>
-                    
-                    <div className="teachers-checkbox-grid">
-                      {personnel.filter(p => p.role === 'teacher').map(p => {
-                        const isChecked = Array.isArray(newTask.recipients) 
-                          ? newTask.recipients.includes(p.id)
-                          : (newTask.recipients === 'all' || 
-                             (newTask.recipients === 'advisers' && adviserIds.has(p.id)) ||
-                             (newTask.recipients === 'non-advisers' && !adviserIds.has(p.id)) ||
-                             (typeof newTask.recipients === 'string' && newTask.recipients.startsWith('subject:') && (p.subjects || []).includes(newTask.recipients.replace('subject:', ''))) ||
-                             newTask.recipients === p.id);
-                        return (
-                          <label key={p.id} className="teacher-checkbox-card">
-                            <input 
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => handleTeacherCheckboxChange(p.id, e.target.checked)}
-                            />
-                            <div className="teacher-checkbox-info">
-                              <span className="tc-name">{p.fullName || p.email}</span>
-                              <span className="tc-sub">{p.position || 'Teacher'} {adviserIds.has(p.id) ? '• Adviser' : ''}</span>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowCreateModal(false)}>Cancel</button>
-                <button type="submit" className="submit-btn">{isEditingTask ? 'Save Changes' : 'Send Request'}</button>
-              </div>
-            </form>
+                onEditTask={handleOpenEditModal}
+                onDeleteTask={handleDeleteTask}
+                onToggleArchive={isAdmin ? handleToggleArchive : undefined}
+              />
+            ))}
           </div>
-        </div>
+        )
       )}
 
-      {/* DETAIL / SUBMIT MODAL */}
-      {showDetailModal && selectedTask && (
-        <div className="modal-overlay">
-          <div className="modal-content detail-modal">
-            <div className="modal-header">
-              <h2>{selectedTask.title}</h2>
-              <button className="close-x" onClick={() => {
-                setSelectedResponse(null);
-                setShowDetailModal(false);
-              }}>✕</button>
-            </div>
-            
-            <div className="modal-body-scroll">
-              <div className="task-info">
-                <p className="modal-desc">{selectedTask.description}</p>
-                <div className="meta-grid">
-                  <div className="meta-item">
-                    <label>Deadline</label>
-                    <span>{formatDate(selectedTask.deadline)}</span>
-                  </div>
-                  <div className="meta-item">
-                    <label>Status</label>
-                    <span className={`status-text ${getStatus(selectedTask.id).toLowerCase()}`}>
-                      {getStatus(selectedTask.id)}
-                    </span>
-                  </div>
-                </div>
-                {selectedTask.folderLink && (() => {
-                  const btnProps = getLinkButtonProps(selectedTask);
-                  return (
-                    <a 
-                      href={selectedTask.folderLink} 
-                      target="_blank" 
-                      rel="noreferrer" 
-                      className="folder-access-btn"
-                    >
-                      {btnProps.icon} {btnProps.label}
-                    </a>
-                  );
-                })()}
-              </div>
+      {/* CREATE / EDIT TASK MODAL */}
+      <SubmissionCreateModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        isEditing={isEditingTask}
+        initialTask={editingTask}
+        personnel={personnel}
+        adviserIds={adviserIds}
+        onSubmit={handleCreateOrUpdateTask}
+      />
 
-              {isAdmin ? (
-                selectedResponse ? (
-                  <div className="response-review-panel">
-                    <button 
-                      type="button" 
-                      className="back-to-list-btn" 
-                      onClick={() => setSelectedResponse(null)}
-                    >
-                      ← Back to Submission List
-                    </button>
-                    <h3>Review Submission</h3>
-                    
-                    <div className="review-teacher-card">
-                      <strong>Teacher:</strong> {personnel.find(p => p.id === selectedResponse.userId)?.fullName || selectedResponse.userName || 'Unknown'}
-                      <br />
-                      <strong>Submitted At:</strong> {formatDateTime(selectedResponse.submittedAt)}
-                    </div>
+      {/* DETAIL / SUBMISSION / REVIEW MODAL */}
+      <SubmissionDetailModal
+        isOpen={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        task={selectedTask}
+        isAdmin={isAdmin}
+        user={user}
+        personnel={personnel}
+        responses={responses}
+        adviserIds={adviserIds}
+        onTeacherSubmit={handleTeacherSubmit}
+        onAdminReview={handleAdminReview}
+        onBatchApprove={handleBatchApprove}
+        onSendReminders={handleSendReminders}
+        onExportCSV={handleExportCSV}
+        onOpenPrintReport={() => setShowPrintReportModal(true)}
+        sendingReminders={sendingReminders}
+      />
 
-                    <div className="review-details">
-                      <div className="review-detail-item" style={{ marginBottom: '1rem' }}>
-                        <label>Submission Link / Proof</label>
-                        {selectedResponse.link ? (
-                          <a href={selectedResponse.link} target="_blank" rel="noreferrer" className="folder-access-btn inline">
-                            🔗 Open Submitted Link
-                          </a>
-                        ) : (
-                          <span className="no-link-text">No link attached</span>
-                        )}
-                      </div>
+      {/* PRINTABLE COMPLIANCE REPORT MODAL */}
+      <SubmissionPrintReportModal
+        isOpen={showPrintReportModal}
+        onClose={() => setShowPrintReportModal(false)}
+        task={selectedTask}
+        settings={settings}
+        user={user}
+        personnel={personnel}
+        responses={responses}
+        adviserIds={adviserIds}
+      />
 
-                      <div className="review-detail-item">
-                        <label>Teacher's Remarks</label>
-                        <p className="remarks-box">{selectedResponse.remarks || 'No remarks provided'}</p>
-                      </div>
-                    </div>
-
-                    <form onSubmit={handleSaveReview} className="review-form">
-                      <div className="form-group">
-                        <label>Review Status</label>
-                        <select
-                          value={reviewForm.status}
-                          onChange={e => setReviewForm({...reviewForm, status: e.target.value})}
-                        >
-                          <option value="Approved">Approved</option>
-                          <option value="Needs Revision">Needs Revision</option>
-                          <option value="Submitted">Pending Review / Submitted</option>
-                        </select>
-                      </div>
-
-                      <div className="form-group">
-                        <label>Feedback / Revision Instructions</label>
-                        <textarea
-                          placeholder="Provide feedback or instructions for revision..."
-                          value={reviewForm.feedback}
-                          onChange={e => setReviewForm({...reviewForm, feedback: e.target.value})}
-                        ></textarea>
-                      </div>
-
-                      <div className="modal-actions no-pad">
-                        <button type="button" className="cancel-btn" onClick={() => setSelectedResponse(null)}>Cancel</button>
-                        <button type="submit" className="submit-btn">Save Review</button>
-                      </div>
-                    </form>
-                  </div>
-                ) : (
-                  <div className="admin-responses">
-                    <div className="admin-responses-header">
-                      <div className="admin-responses-title">
-                        <h3>Submission List Status</h3>
-                        <p className="subtitle-small">Track targeted teacher responses (Click a submitted row to inspect and review)</p>
-                      </div>
-                      <div className="admin-actions-row">
-                        <select 
-                          value={adminResponseFilter}
-                          onChange={e => setAdminResponseFilter(e.target.value)}
-                          className="admin-response-select"
-                        >
-                          <option value="all">All Targets</option>
-                          <option value="submitted">Submitted Only</option>
-                          <option value="pending">Pending Only</option>
-                        </select>
-                        <button className="export-csv-btn" onClick={handleExportResponses}>
-                          📥 Export CSV
-                        </button>
-                      </div>
-                    </div>
-                    <div className="responses-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Teacher</th>
-                            <th>Status</th>
-                            <th>Date Submitted</th>
-                            <th>Submission Proof / Remarks</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const targets = getTargetTeachers(selectedTask);
-                            const taskResponses = responses.filter(r => r.submissionId === selectedTask.id);
-                            const responseMap = new Map(taskResponses.map(r => [r.userId, r]));
-
-                            const rows = targets.map(t => {
-                              const resp = responseMap.get(t.id);
-                              const isOverdue = new Date(selectedTask.deadline) < new Date() && !resp;
-                              const statusLabel = resp ? resp.status || 'Submitted' : (isOverdue ? 'Overdue' : 'Pending');
-                              return { teacher: t, response: resp, status: statusLabel };
-                            }).filter(row => {
-                              if (adminResponseFilter === 'submitted') return !!row.response;
-                              if (adminResponseFilter === 'pending') return !row.response;
-                              return true;
-                            });
-
-                            if (rows.length === 0) {
-                              return (
-                                <tr>
-                                  <td colSpan="4" className="empty-row">
-                                    No matching targets found.
-                                  </td>
-                                </tr>
-                              );
-                            }
-
-                            return rows.map(({ teacher, response, status }) => (
-                              <tr 
-                                key={teacher.id} 
-                                className={`status-row-${status.toLowerCase().replace(/\s+/g, '-')} ${response ? 'clickable-row' : ''}`}
-                                onClick={() => response && handleSelectResponse({ teacher, response, status })}
-                              >
-                                <td>
-                                  <div className="table-teacher-info">
-                                    <span className="table-teacher-name">{teacher.fullName || teacher.email}</span>
-                                    <span className="table-teacher-sub">{teacher.position || 'Teacher'}</span>
-                                  </div>
-                                </td>
-                                <td>
-                                  <span className={`status-pill ${status.toLowerCase().replace(/\s+/g, '-')}`}>
-                                    {status}
-                                  </span>
-                                </td>
-                                <td>
-                                  {response ? formatDateTime(response.submittedAt) : '—'}
-                                </td>
-                                <td>
-                                  {response ? (
-                                    <div className="submission-details-td">
-                                      {response.link && (
-                                        <a 
-                                          href={response.link} 
-                                          target="_blank" 
-                                          rel="noreferrer" 
-                                          className="table-submission-link"
-                                          onClick={e => e.stopPropagation()}
-                                        >
-                                          🔗 View Link
-                                        </a>
-                                      )}
-                                      {response.remarks && <p className="mini-remarks">{response.remarks}</p>}
-                                    </div>
-                                  ) : (
-                                    <span className="pending-text-placeholder">Not submitted yet</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ));
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )
-              ) : (
-                <div className="teacher-submit-form">
-                  {(() => {
-                    const banner = getBannerProps(selectedTask);
-                    const userResponse = responses.find(r => r.submissionId === selectedTask.id && r.userId === user.uid);
-                    return (
-                      <>
-                        {userResponse && userResponse.feedback && (
-                          <div className={`review-feedback-banner ${userResponse.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                            <strong>Review Status: {userResponse.status}</strong>
-                            <p><strong>Admin Feedback:</strong> {userResponse.feedback}</p>
-                          </div>
-                        )}
-                        <div className={`onedrive-banner ${(selectedTask.linkType || detectLinkType(selectedTask.folderLink))}-banner-type`}>
-                          <div className="onedrive-icon">{banner.icon}</div>
-                          <div className="onedrive-text">
-                            <strong>{banner.title}</strong>
-                            <p>{banner.text}</p>
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })()}
-                  <form onSubmit={handleSubmitResponse}>
-                    <div className="form-group">
-                      <label>Submission Link / Document URL (Optional)</label>
-                      <input 
-                        type="url" 
-                        placeholder="Paste link here if you want to link the specific file or form response..." 
-                        value={responseForm.link}
-                        onChange={e => setResponseForm({...responseForm, link: e.target.value})}
-                      />
-                      <p className="field-hint">You can leave this blank if you submitted on the external link directly and do not need to attach a file link.</p>
-                    </div>
-                    <div className="form-group">
-                      <label>Remarks / Notes</label>
-                      <textarea 
-                        placeholder="e.g., Done uploading my report."
-                        value={responseForm.remarks}
-                        onChange={e => setResponseForm({...responseForm, remarks: e.target.value})}
-                      ></textarea>
-                    </div>
-                    <button type="submit" className="submit-btn full">
-                      {getStatus(selectedTask.id) === 'Submitted' ? 'Update Submission' : 'Submit Report'}
-                    </button>
-                  </form>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* TOAST MESSAGE */}
       {toast && (
         <div className={`toast-message ${toast.type}`}>
           <span className="toast-icon">{toast.type === 'success' ? '✅' : '❌'}</span>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
@@ -45,7 +45,8 @@ const defaultSettings = {
     'attendance-tracker': true,
     'academic-records': true,
     'inventory-tracker': true,
-    'enrolment-lister': true
+    'enrolment-lister': true,
+    'learning-resources': true
   },
   enableFileUpload: true,
   
@@ -54,7 +55,38 @@ const defaultSettings = {
   theme: 'light',
   fontSize: 'compact',
   logoPosition: 'left',
-  heroBackground: '', // Base64 or URL
+  // DepEd Signatories & Authorities
+  principalName: 'DR. MARIA C. SANTOS',
+  principalTitle: 'Principal IV',
+  assistantPrincipal: 'JUAN D. DELA CRUZ, EdD',
+  assistantPrincipalTitle: 'Assistant Principal II',
+  registrarName: 'ELENA R. BAUTISTA',
+  registrarTitle: 'School Registrar I',
+  divisionSuperintendent: 'DR. CRISTINA G. VILLANUEVA, CESO V',
+  divisionSuperintendentTitle: 'Schools Division Superintendent',
+  districtSupervisor: 'DR. ROBERTO M. REYES',
+
+  // DepEd Grading Policies (DO 15, s. 2026 & DO 009, s. 2026)
+  // Academic year is divided into 3 Terms; FG = average of Term 1, Term 2, Term 3.
+  activeTerm: 'T1',
+  gradingEncodingOpen: {
+    t1: true,
+    t2: false,
+    t3: false
+  },
+  passingGrade: 75,
+  totalSchoolDays: 201, // DO 009, s. 2026: 201 class days for SY 2026-2027 (max 220)
+  gradingWeights: {
+    // Core subjects (KS2–KS4): WW 20%, PT 50%, EX 30%
+    languagesAndHumss: { written: 20, performance: 50, examinations: 30 },
+    mathAndScience:    { written: 20, performance: 50, examinations: 30 },
+    // Technical/Applied (EPP/TLE, MAPEH): WW 20%, PT 60%, EX 20%
+    mapehAndTle:       { written: 20, performance: 60, examinations: 20 },
+    // SHS Academic: WW 20%, PT 50%, EX 30%
+    shsAcademic:       { written: 20, performance: 50, examinations: 30 },
+    // SHS TVL / Sports / Arts: WW 20%, PT 60%, EX 20%
+    shsTvl:            { written: 20, performance: 60, examinations: 20 }
+  },
 
   // Security Settings
   registrationCode: 'SETUP-1234'
@@ -198,14 +230,16 @@ export const SettingsProvider = ({ children }) => {
   const currentViewYear = sessionAcademicYear || settings.academicYear;
   const isReadOnly = (currentViewYear !== settings.academicYear) || (settings.academicYearStatus === 'locked');
 
+  const contextValue = useMemo(() => ({
+    settings, 
+    updateSettings, 
+    sessionAcademicYear: currentViewYear, 
+    setSessionAcademicYear,
+    isReadOnly 
+  }), [settings, currentViewYear, isReadOnly]);
+
   return (
-    <SettingsContext.Provider value={{ 
-      settings, 
-      updateSettings, 
-      sessionAcademicYear: currentViewYear, 
-      setSessionAcademicYear,
-      isReadOnly 
-    }}>
+    <SettingsContext.Provider value={contextValue}>
       {children}
     </SettingsContext.Provider>
   );

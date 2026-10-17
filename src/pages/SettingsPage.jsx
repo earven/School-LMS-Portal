@@ -1,7 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSettings } from '../context/SettingsContext';
-import imageCompression from 'browser-image-compression';
+import { useAuth } from '../context/AuthContext';
+import { useStudents } from '../context/StudentContext';
+import { useSections } from '../context/SectionContext';
+import { usePersonnel } from '../context/PersonnelContext';
+import { uploadMediaWithFallback } from '../utils/mediaStorage';
+import { 
+  exportSchoolSnapshot, 
+  validateBackupFile, 
+  restoreSchoolSnapshot, 
+  scanDataIntegrity 
+} from '../utils/backupService';
+import { 
+  subscribeAuditLogs, 
+  exportAuditLogsToCSV, 
+  AUDIT_CATEGORIES, 
+  AUDIT_SEVERITY,
+  logAuditEvent
+} from '../utils/auditLogger';
 import './SettingsPage.css';
+
+import SettingsIdentityTab from './SettingsTabs/SettingsIdentityTab';
+import SettingsGradingTab from './SettingsTabs/SettingsGradingTab';
+import SettingsContactTab from './SettingsTabs/SettingsContactTab';
+import SettingsSystemTab from './SettingsTabs/SettingsSystemTab';
+import SettingsAppearanceTab from './SettingsTabs/SettingsAppearanceTab';
+import SettingsDataManagementTab from './SettingsTabs/SettingsDataManagementTab';
+import SettingsAuditLogsTab from './SettingsTabs/SettingsAuditLogsTab';
+import SettingsResetModal from './SettingsTabs/SettingsResetModal';
+import SettingsRestoreModal from './SettingsTabs/SettingsRestoreModal';
 
 const DEFAULT_SETTINGS = {
   schoolName: 'Your School Name',
@@ -31,7 +58,35 @@ const DEFAULT_SETTINGS = {
   heroBackground: '',
   heroImages: [],
   featuredGallery: [],
-  registrationCode: 'SETUP-1234'
+  registrationCode: 'SETUP-1234',
+
+  // DepEd Signatories & Authorities
+  principalName: 'DR. MARIA C. SANTOS',
+  principalTitle: 'Principal IV',
+  assistantPrincipal: 'JUAN D. DELA CRUZ, EdD',
+  assistantPrincipalTitle: 'Assistant Principal II',
+  registrarName: 'ELENA R. BAUTISTA',
+  registrarTitle: 'School Registrar I',
+  divisionSuperintendent: 'DR. CRISTINA G. VILLANUEVA, CESO V',
+  divisionSuperintendentTitle: 'Schools Division Superintendent',
+  districtSupervisor: 'DR. ROBERTO M. REYES',
+
+  // DepEd Grading Policies (DO 8, s. 2015 & DO 31, s. 2020)
+  activeTerm: 'T1',
+  gradingEncodingOpen: {
+    t1: true,
+    t2: false,
+    t3: false
+  },
+  passingGrade: 75,
+  totalSchoolDays: 201,
+  gradingWeights: {
+    languagesAndHumss: { written: 20, performance: 50, examinations: 30 },
+    mathAndScience: { written: 20, performance: 50, examinations: 30 },
+    mapehAndTle: { written: 20, performance: 60, examinations: 20 },
+    shsAcademic: { written: 20, performance: 50, examinations: 30 },
+    shsTvl: { written: 20, performance: 60, examinations: 20 }
+  }
 };
 
 const COLOR_PRESETS = [
@@ -45,9 +100,15 @@ const COLOR_PRESETS = [
 
 const SettingsPage = () => {
   const { settings, updateSettings } = useSettings();
+  const { user } = useAuth();
+  const { students } = useStudents();
+  const { sections } = useSections();
+  const { personnel } = usePersonnel();
+
   const [activeTab, setActiveTab] = useState('identity');
   const [localSettings, setLocalSettings] = useState(settings);
   const [showNotification, setShowNotification] = useState(false);
+  const [notificationMsg, setNotificationMsg] = useState('Changes saved successfully!');
   
   // New Enhancement States
   const [isSaving, setIsSaving] = useState(false);
@@ -59,6 +120,43 @@ const SettingsPage = () => {
   const [isDraggingHero, setIsDraggingHero] = useState(false);
   const [isDraggingDashboard, setIsDraggingDashboard] = useState(false);
   const [isDraggingGallery, setIsDraggingGallery] = useState(false);
+
+  // Data Management states
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [backupPreview, setBackupPreview] = useState(null);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreConfirmationText, setRestoreConfirmationText] = useState('');
+  const [selectedRestoreCollections, setSelectedRestoreCollections] = useState([]);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Data Integrity Scanner states
+  const [integrityResults, setIntegrityResults] = useState(null);
+  const [isScanningIntegrity, setIsScanningIntegrity] = useState(false);
+
+  // Audit Logs states
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditCategoryFilter, setAuditCategoryFilter] = useState('ALL');
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState('ALL');
+  const [selectedLogDetail, setSelectedLogDetail] = useState(null);
+
+  // Subscribe to live audit logs
+  useEffect(() => {
+    if (activeTab !== 'audit-logs') return;
+    const unsubscribe = subscribeAuditLogs((logs) => {
+      setAuditLogs(logs);
+    }, { limitCount: 150, category: auditCategoryFilter !== 'ALL' ? auditCategoryFilter : null });
+    return () => unsubscribe();
+  }, [activeTab, auditCategoryFilter]);
+
+  const triggerNotification = (msg) => {
+    setNotificationMsg(msg);
+    setShowNotification(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => setShowNotification(false), 3500);
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -90,38 +188,17 @@ const SettingsPage = () => {
     }
   };
 
-  const resizeImage = async (file, maxWidth = 1920, maxHeight = 1080) => {
-    try {
-      const options = {
-        maxSizeMB: 0.1, // 100 KB max limit to keep Firestore documents small
-        maxWidthOrHeight: Math.max(maxWidth, maxHeight),
-        useWebWorker: true,
-        fileType: 'image/jpeg'
-      };
-      
-      const compressedFile = await imageCompression(file, options);
-      
-      // Convert the compressed Blob back to Base64 since the settings use Data URLs
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(compressedFile);
-        reader.onloadend = () => {
-          resolve(reader.result);
-        };
-        reader.onerror = (error) => reject(error);
-      });
-    } catch (error) {
-      console.error("Image compression error:", error);
-      throw new Error("Failed to process image. It might not be a valid image file.");
-    }
-  };
-
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       try {
-        const resized = await resizeImage(file, 300, 300);
-        setLocalSettings(prev => ({ ...prev, schoolLogo: resized }));
+        const { url } = await uploadMediaWithFallback({
+          file,
+          storagePath: `settings/logo_${Date.now()}.webp`,
+          maxWidthOrHeight: 300,
+          maxSizeMB: 0.1
+        });
+        setLocalSettings(prev => ({ ...prev, schoolLogo: url }));
       } catch (err) {
         alert(err.message);
       }
@@ -135,7 +212,16 @@ const SettingsPage = () => {
   const handleHeroImagesUpload = async (e) => {
     try {
       const files = Array.from(e.target.files);
-      const results = await Promise.all(files.map(file => resizeImage(file, 1280, 720)));
+      const results = await Promise.all(
+        files.map((file, i) =>
+          uploadMediaWithFallback({
+            file,
+            storagePath: `settings/hero_${Date.now()}_${i}.webp`,
+            maxWidthOrHeight: 1280,
+            maxSizeMB: 0.2
+          }).then(res => res.url)
+        )
+      );
       setLocalSettings(prev => ({
         ...prev,
         heroImages: [...(prev.heroImages || []), ...results]
@@ -157,8 +243,13 @@ const SettingsPage = () => {
     const file = e.target.files[0];
     if (file) {
       try {
-        const resized = await resizeImage(file, 1280, 720);
-        setLocalSettings(prev => ({ ...prev, heroBackground: resized }));
+        const { url } = await uploadMediaWithFallback({
+          file,
+          storagePath: `settings/hero_bg_${Date.now()}.webp`,
+          maxWidthOrHeight: 1280,
+          maxSizeMB: 0.2
+        });
+        setLocalSettings(prev => ({ ...prev, heroBackground: url }));
       } catch (err) {
         alert(err.message);
       }
@@ -172,7 +263,16 @@ const SettingsPage = () => {
   const handleFeaturedGalleryUpload = async (e) => {
     try {
       const files = Array.from(e.target.files);
-      const results = await Promise.all(files.map(file => resizeImage(file, 600, 450)));
+      const results = await Promise.all(
+        files.map((file, i) =>
+          uploadMediaWithFallback({
+            file,
+            storagePath: `settings/gallery_${Date.now()}_${i}.webp`,
+            maxWidthOrHeight: 600,
+            maxSizeMB: 0.15
+          }).then(res => res.url)
+        )
+      );
       setLocalSettings(prev => ({
         ...prev,
         featuredGallery: [...(prev.featuredGallery || []), ...results]
@@ -207,8 +307,13 @@ const SettingsPage = () => {
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
       try {
-        const resized = await resizeImage(file, 300, 300);
-        setLocalSettings(prev => ({ ...prev, schoolLogo: resized }));
+        const { url } = await uploadMediaWithFallback({
+          file,
+          storagePath: `settings/logo_${Date.now()}.webp`,
+          maxWidthOrHeight: 300,
+          maxSizeMB: 0.1
+        });
+        setLocalSettings(prev => ({ ...prev, schoolLogo: url }));
       } catch (err) {
         alert(err.message);
       }
@@ -221,7 +326,16 @@ const SettingsPage = () => {
     const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
     if (files.length > 0) {
       try {
-        const results = await Promise.all(files.map(file => resizeImage(file, 1280, 720)));
+        const results = await Promise.all(
+          files.map((file, i) =>
+            uploadMediaWithFallback({
+              file,
+              storagePath: `settings/hero_${Date.now()}_${i}.webp`,
+              maxWidthOrHeight: 1280,
+              maxSizeMB: 0.2
+            }).then(res => res.url)
+          )
+        );
         setLocalSettings(prev => ({
           ...prev,
           heroImages: [...(prev.heroImages || []), ...results]
@@ -238,8 +352,13 @@ const SettingsPage = () => {
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
       try {
-        const resized = await resizeImage(file, 1280, 720);
-        setLocalSettings(prev => ({ ...prev, heroBackground: resized }));
+        const { url } = await uploadMediaWithFallback({
+          file,
+          storagePath: `settings/hero_bg_${Date.now()}.webp`,
+          maxWidthOrHeight: 1280,
+          maxSizeMB: 0.2
+        });
+        setLocalSettings(prev => ({ ...prev, heroBackground: url }));
       } catch (err) {
         alert(err.message);
       }
@@ -252,7 +371,16 @@ const SettingsPage = () => {
     const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
     if (files.length > 0) {
       try {
-        const results = await Promise.all(files.map(file => resizeImage(file, 600, 450)));
+        const results = await Promise.all(
+          files.map((file, i) =>
+            uploadMediaWithFallback({
+              file,
+              storagePath: `settings/gallery_${Date.now()}_${i}.webp`,
+              maxWidthOrHeight: 600,
+              maxSizeMB: 0.15
+            }).then(res => res.url)
+          )
+        );
         setLocalSettings(prev => ({
           ...prev,
           featuredGallery: [...(prev.featuredGallery || []), ...results]
@@ -308,9 +436,14 @@ const SettingsPage = () => {
     const success = updateSettings(localSettings);
     setIsSaving(false);
     if (success) {
-      setShowNotification(true);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setTimeout(() => setShowNotification(false), 3000);
+      triggerNotification('Changes saved successfully!');
+      logAuditEvent({
+        action: 'SETTINGS_UPDATED',
+        category: AUDIT_CATEGORIES.SETTINGS,
+        details: `Updated school system settings and module configurations.`,
+        severity: AUDIT_SEVERITY.INFO,
+        actor: user
+      });
     }
   };
 
@@ -318,22 +451,141 @@ const SettingsPage = () => {
     setLocalSettings(DEFAULT_SETTINGS);
     updateSettings(DEFAULT_SETTINGS);
     setShowResetModal(false);
-    setShowNotification(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setTimeout(() => setShowNotification(false), 3000);
+    triggerNotification('Settings restored to default configurations.');
+    logAuditEvent({
+      action: 'SETTINGS_RESET_DEFAULTS',
+      category: AUDIT_CATEGORIES.SETTINGS,
+      details: `Reset system settings to factory default configurations.`,
+      severity: AUDIT_SEVERITY.WARNING,
+      actor: user
+    });
+  };
+
+  // ── Data Management Handlers ──────────────────────────────────────────
+  const handleExportBackup = async () => {
+    setIsExportingBackup(true);
+    try {
+      const result = await exportSchoolSnapshot({
+        academicYear: localSettings.academicYear,
+        schoolInfo: localSettings,
+        actor: user
+      });
+      triggerNotification(`Backup successfully generated (${result.filename})`);
+    } catch (err) {
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setIsExportingBackup(false);
+    }
+  };
+
+  const handleBackupFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target.result;
+      const validation = validateBackupFile(content);
+      if (!validation.valid) {
+        alert(validation.error);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      setBackupPreview(validation);
+      setSelectedRestoreCollections(Object.keys(validation.data || {}));
+      setRestoreConfirmationText('');
+      setShowRestoreModal(true);
+    };
+    reader.onerror = () => {
+      alert('Could not read backup file.');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExecuteRestore = async () => {
+    if (restoreConfirmationText.trim().toUpperCase() !== 'RESTORE DATA') {
+      alert('Please type "RESTORE DATA" to confirm restoration.');
+      return;
+    }
+
+    if (!backupPreview || !backupPreview.data) return;
+
+    setIsRestoring(true);
+    setRestoreProgress({ current: 0, total: backupPreview.metadata.totalRecords, percentage: 0, collectionName: 'Initializing' });
+
+    try {
+      await restoreSchoolSnapshot(
+        backupPreview.data,
+        {
+          selectedCollections: selectedRestoreCollections,
+          academicYear: localSettings.academicYear,
+          actor: user
+        },
+        (progress) => {
+          setRestoreProgress(progress);
+        }
+      );
+
+      setShowRestoreModal(false);
+      setBackupPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      triggerNotification('School data successfully restored from backup snapshot!');
+    } catch (err) {
+      alert(`Restoration failed: ${err.message}`);
+    } finally {
+      setIsRestoring(false);
+      setRestoreProgress(null);
+    }
+  };
+
+  const handleRunIntegrityScan = async () => {
+    setIsScanningIntegrity(true);
+    try {
+      const results = await scanDataIntegrity({ students, sections, personnel });
+      setIntegrityResults(results);
+    } catch (err) {
+      alert(`Scan failed: ${err.message}`);
+    } finally {
+      setIsScanningIntegrity(false);
+    }
+  };
+
+  // ── Audit Logs Filter ────────────────────────────────────────────────
+  const filteredAuditLogs = useMemo(() => {
+    return auditLogs.filter(log => {
+      if (auditCategoryFilter !== 'ALL' && log.category !== auditCategoryFilter) return false;
+      if (auditSeverityFilter !== 'ALL' && log.severity !== auditSeverityFilter) return false;
+      if (auditSearch.trim()) {
+        const q = auditSearch.toLowerCase();
+        const actor = (log.actorName || log.actorEmail || '').toLowerCase();
+        const action = (log.action || '').toLowerCase();
+        const details = (log.details || '').toLowerCase();
+        const target = (log.targetId || '').toLowerCase();
+        return actor.includes(q) || action.includes(q) || details.includes(q) || target.includes(q);
+      }
+      return true;
+    });
+  }, [auditLogs, auditCategoryFilter, auditSeverityFilter, auditSearch]);
+
+  const handleExportAuditCSV = () => {
+    if (filteredAuditLogs.length === 0) {
+      alert('No audit logs to export.');
+      return;
+    }
+    exportAuditLogsToCSV(filteredAuditLogs);
   };
 
   return (
     <div className="settings-container">
       <header className="settings-header">
         <h1>System Settings</h1>
-        <p className="settings-subtitle">Configure your portal's school branding, modules, term periods, and aesthetics.</p>
+        <p className="settings-subtitle">Configure your portal's school branding, modules, data backups, and audit compliance.</p>
       </header>
 
       {showNotification && (
         <div className="notification success">
           <span className="notification-icon">✓</span>
-          <span className="notification-message">Changes saved successfully!</span>
+          <span className="notification-message">{notificationMsg}</span>
         </div>
       )}
 
@@ -369,6 +621,17 @@ const SettingsPage = () => {
             <span>System Prefs</span>
           </button>
           <button
+            className={`sidebar-tab ${activeTab === 'grading-policies' ? 'active' : ''}`}
+            onClick={() => setActiveTab('grading-policies')}
+          >
+            <svg className="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+              <path d="M8 7h8M8 11h8"/>
+            </svg>
+            <span>Grading & Policies</span>
+          </button>
+          <button
             className={`sidebar-tab ${activeTab === 'appearance' ? 'active' : ''}`}
             onClick={() => setActiveTab('appearance')}
           >
@@ -379,536 +642,124 @@ const SettingsPage = () => {
             </svg>
             <span>Appearance</span>
           </button>
+          <button
+            className={`sidebar-tab ${activeTab === 'data-management' ? 'active' : ''}`}
+            onClick={() => setActiveTab('data-management')}
+          >
+            <svg className="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <span>Data & Backup</span>
+          </button>
+          <button
+            className={`sidebar-tab ${activeTab === 'audit-logs' ? 'active' : ''}`}
+            onClick={() => setActiveTab('audit-logs')}
+          >
+            <svg className="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="m9 12 2 2 4-4"/>
+            </svg>
+            <span>Audit Logs</span>
+          </button>
         </aside>
 
         <main className="settings-main">
           <div className="tab-content">
             {activeTab === 'identity' && (
-              <div className="tab-pane fade-in">
-                <div className="settings-card">
-                  <div className="card-header">
-                    <h2>School Identity & Branding</h2>
-                    <p className="card-subtitle">Manage your school's identity, official logo, and general description.</p>
-                  </div>
-                  <div className="card-body">
-                    <div className="profile-layout-grid">
-                      <div className="profile-inputs-col">
-                        <div className="form-group">
-                          <label htmlFor="schoolName">School Name</label>
-                          <input
-                            id="schoolName"
-                            type="text"
-                            name="schoolName"
-                            value={localSettings.schoolName}
-                            onChange={handleInputChange}
-                            placeholder="e.g. Oakridge High School"
-                          />
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="motto">School Motto / Tagline</label>
-                          <input
-                            id="motto"
-                            type="text"
-                            name="motto"
-                            value={localSettings.motto}
-                            onChange={handleInputChange}
-                            placeholder="e.g. Excellence in Education"
-                          />
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="description">School Description</label>
-                          <textarea
-                            id="description"
-                            name="description"
-                            rows="3"
-                            value={localSettings.description}
-                            onChange={handleInputChange}
-                            placeholder="Describe your school's history, mission, or vision..."
-                          />
-                        </div>
-                      </div>
-                      
-                      <div className="profile-branding-col">
-                        <label className="branding-label">School Logo / Seal</label>
-                        <div 
-                          className={`compact-logo-container ${isDraggingLogo ? 'dragging' : ''}`}
-                          onDragOver={(e) => handleDragOver(e, setIsDraggingLogo)}
-                          onDragLeave={(e) => handleDragLeave(e, setIsDraggingLogo)}
-                          onDrop={handleLogoDrop}
-                        >
-                          {localSettings.schoolLogo ? (
-                            <div className="logo-preview-badge" style={{ position: 'relative' }}>
-                              <img src={localSettings.schoolLogo} alt="School Logo" />
-                              <button 
-                                type="button"
-                                onClick={removeSchoolLogo}
-                                className="compact-delete-btn"
-                                title="Remove Logo"
-                                style={{ position: 'absolute', top: '-5px', right: '-5px' }}
-                              >
-                                &times;
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="logo-placeholder-display">
-                              <span>No Logo Loaded</span>
-                            </div>
-                          )}
-                          <div className="file-uploader-box compact">
-                            <input 
-                              type="file" 
-                              id="logo-upload"
-                              accept="image/*" 
-                              onChange={handleLogoUpload} 
-                              className="file-input-hidden"
-                            />
-                            <label htmlFor="logo-upload" className="file-uploader-label compact">
-                              <svg className="upload-icon compact" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                              </svg>
-                              <span className="upload-text-main">Change Logo</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <SettingsIdentityTab
+                localSettings={localSettings}
+                handleInputChange={handleInputChange}
+                isDraggingLogo={isDraggingLogo}
+                setIsDraggingLogo={setIsDraggingLogo}
+                handleDragOver={handleDragOver}
+                handleDragLeave={handleDragLeave}
+                handleLogoDrop={handleLogoDrop}
+                removeSchoolLogo={removeSchoolLogo}
+                handleLogoUpload={handleLogoUpload}
+              />
+            )}
+
+            {/* GRADING & POLICIES TAB */}
+            {activeTab === 'grading-policies' && (
+              <SettingsGradingTab
+                localSettings={localSettings}
+                handleInputChange={handleInputChange}
+                setLocalSettings={setLocalSettings}
+              />
             )}
 
             {activeTab === 'contact' && (
-              <div className="tab-pane fade-in">
-                <div className="settings-card">
-                  <div className="card-header">
-                    <h2>Contact Information</h2>
-                    <p className="card-subtitle">Manage physical addresses, email channels, phone lines, and social links.</p>
-                  </div>
-                  <div className="card-body">
-                    <div className="form-grid">
-                      <div className="contact-left-col">
-                        <div className="form-group">
-                          <label htmlFor="phone" className={errors.phone ? 'label-error' : ''}>Phone Number</label>
-                          <input
-                            id="phone"
-                            type="text"
-                            name="phone"
-                            className={errors.phone ? 'input-error' : ''}
-                            value={localSettings.phone}
-                            onChange={handleInputChange}
-                            placeholder="e.g. +63 912 345 6789"
-                          />
-                          {errors.phone && <span className="error-text">{errors.phone}</span>}
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="email" className={errors.email ? 'label-error' : ''}>Email Address</label>
-                          <input
-                            id="email"
-                            type="email"
-                            name="email"
-                            className={errors.email ? 'input-error' : ''}
-                            value={localSettings.email}
-                            onChange={handleInputChange}
-                            placeholder="e.g. contact@school.edu"
-                          />
-                          {errors.email && <span className="error-text">{errors.email}</span>}
-                        </div>
-                      </div>
-                      <div className="contact-right-col">
-                        <div className="form-group">
-                          <label htmlFor="facebookUrl" className={errors.facebookUrl ? 'label-error' : ''}>Facebook Page URL</label>
-                          <input
-                            id="facebookUrl"
-                            type="url"
-                            name="facebookUrl"
-                            className={errors.facebookUrl ? 'input-error' : ''}
-                            value={localSettings.facebookUrl}
-                            onChange={handleInputChange}
-                            placeholder="https://facebook.com/yourschool"
-                          />
-                          {errors.facebookUrl && <span className="error-text">{errors.facebookUrl}</span>}
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="address">School Address</label>
-                          <textarea
-                            id="address"
-                            name="address"
-                            rows="3"
-                            value={localSettings.address}
-                            onChange={handleInputChange}
-                            placeholder="Complete physical street address..."
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <SettingsContactTab
+                localSettings={localSettings}
+                handleInputChange={handleInputChange}
+                errors={errors}
+              />
             )}
 
             {activeTab === 'system' && (
-              <div className="tab-pane fade-in">
-                <div className="settings-card">
-                  <div className="card-header">
-                    <h2>System Preferences & Portal Modules</h2>
-                    <p className="card-subtitle">Configure academic year terms, enable portal tools, and manage storage capabilities.</p>
-                  </div>
-                  <div className="card-body">
-                    <div className="system-layout-grid">
-                      <div className="system-config-col">
-                        <div className="form-group">
-                          <label htmlFor="academicYear">Active Academic Year</label>
-                          <div className="select-wrapper">
-                            <select
-                              id="academicYear"
-                              name="academicYear"
-                              value={localSettings.academicYear || ''}
-                              onChange={handleInputChange}
-                            >
-                              <option value="2024-2025">2024-2025</option>
-                              <option value="2025-2026">2025-2026</option>
-                              <option value="2026-2027">2026-2027</option>
-                              <option value="2027-2028">2027-2028</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="academicYearStatus">School Year Status</label>
-                          <div className="select-wrapper">
-                            <select
-                              id="academicYearStatus"
-                              name="academicYearStatus"
-                              value={localSettings.academicYearStatus || 'open'}
-                              onChange={handleInputChange}
-                            >
-                              <option value="open">Open (Teachers can edit records)</option>
-                              <option value="locked">Locked (Strictly Read-Only)</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="form-group margin-top-lg">
-                          <label>System Assets</label>
-                          <div className="toggle-row compact">
-                            <div className="toggle-row-info">
-                              <span className="toggle-row-title">File Upload System</span>
-                              <span className="toggle-row-desc">Allow students and teachers to submit attachments.</span>
-                            </div>
-                            <label className="switch-container">
-                              <input
-                                type="checkbox"
-                                name="enableFileUpload"
-                                checked={localSettings.enableFileUpload}
-                                onChange={handleInputChange}
-                              />
-                              <span className="custom-switch-slider"></span>
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="form-group margin-top-lg" style={{ backgroundColor: '#fef2f2', padding: '1rem', borderRadius: '8px', border: '1px solid #fecaca' }}>
-                          <label htmlFor="registrationCode" style={{ color: '#991b1b', fontWeight: 'bold' }}>
-                            <span style={{ marginRight: '0.5rem' }}>🔒</span>
-                            Teacher Registration Code
-                          </label>
-                          <p style={{ fontSize: '0.8rem', color: '#b91c1c', marginBottom: '0.5rem', lineHeight: '1.4' }}>
-                            New users must enter this code when logging in for the first time to gain access to the system.
-                          </p>
-                          <input
-                            id="registrationCode"
-                            type="text"
-                            name="registrationCode"
-                            value={localSettings.registrationCode || ''}
-                            onChange={handleInputChange}
-                            placeholder="e.g. OAKRIDGE-2026"
-                            style={{ borderColor: '#fca5a5' }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="system-modules-col">
-                        <label className="branding-label">Enable Portal Modules</label>
-                        <div className="compact-modules-list">
-                          <label className={`module-list-item ${localSettings.enabledModules.studentManagement ? 'checked' : ''}`}>
-                            <input
-                              type="checkbox"
-                              name="enabledModules.studentManagement"
-                              checked={localSettings.enabledModules.studentManagement}
-                              onChange={handleInputChange}
-                            />
-                            <span className="module-item-icon">👥</span>
-                            <div className="module-item-info">
-                              <span className="module-item-title">Student Management</span>
-                              <span className="module-item-desc">Profiles and enrollment</span>
-                            </div>
-                            <span className="custom-switch"></span>
-                          </label>
-
-                          <label className={`module-list-item ${localSettings.enabledModules.personnelManagement ? 'checked' : ''}`}>
-                            <input
-                              type="checkbox"
-                              name="enabledModules.personnelManagement"
-                              checked={localSettings.enabledModules.personnelManagement}
-                              onChange={handleInputChange}
-                            />
-                            <span className="module-item-icon">👔</span>
-                            <div className="module-item-info">
-                              <span className="module-item-title">Personnel Management</span>
-                              <span className="module-item-desc">Teacher/Staff records</span>
-                            </div>
-                            <span className="custom-switch"></span>
-                          </label>
-
-                          <label className={`module-list-item ${localSettings.enabledModules.teacherTools ? 'checked' : ''}`}>
-                            <input
-                              type="checkbox"
-                              name="enabledModules.teacherTools"
-                              checked={localSettings.enabledModules.teacherTools}
-                              onChange={handleInputChange}
-                            />
-                            <span className="module-item-icon">🛠️</span>
-                            <div className="module-item-info">
-                              <span className="module-item-title">Teacher Tools</span>
-                              <span className="module-item-desc">Attendance & data tracking</span>
-                            </div>
-                            <span className="custom-switch"></span>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <SettingsSystemTab
+                localSettings={localSettings}
+                handleInputChange={handleInputChange}
+              />
             )}
 
             {activeTab === 'appearance' && (
-              <div className="tab-pane fade-in">
-                <div className="settings-card">
-                  <div className="card-header">
-                    <h2>Appearance & Branding Assets</h2>
-                    <p className="card-subtitle">Customize application colors, typography, theme preferences, and marketing media.</p>
-                  </div>
-                  <div className="card-body">
-                    <div className="appearance-layout-grid">
-                      <div className="appearance-config-col">
-                        <label className="branding-label">Portal Styling</label>
-                        <div className="form-group">
-                          <label htmlFor="theme">Theme Selector</label>
-                          <div className="select-wrapper">
-                            <select
-                              id="theme"
-                              name="theme"
-                              value={localSettings.theme}
-                              onChange={handleInputChange}
-                            >
-                              <option value="light">Light Theme</option>
-                              <option value="dark">Dark Theme</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="fontSize">System Font Size</label>
-                          <div className="select-wrapper">
-                            <select
-                              id="fontSize"
-                              name="fontSize"
-                              value={localSettings.fontSize || 'compact'}
-                              onChange={handleInputChange}
-                            >
-                              <option value="standard">Standard (16px)</option>
-                              <option value="medium">Medium (15px)</option>
-                              <option value="compact">Compact (14px)</option>
-                              <option value="extra-compact">Extra Compact (13px)</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="logoPosition">Logo Position</label>
-                          <div className="select-wrapper">
-                            <select
-                              id="logoPosition"
-                              name="logoPosition"
-                              value={localSettings.logoPosition}
-                              onChange={handleInputChange}
-                            >
-                              <option value="left">Left Aligned</option>
-                              <option value="center">Center Aligned</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="form-group margin-top-md">
-                          <label htmlFor="primaryColor">Primary Theme Color</label>
-                          
-                          {/* Color presets panel */}
-                          <div className="presets-container">
-                            {COLOR_PRESETS.map((preset) => (
-                              <button
-                                key={preset.hex}
-                                type="button"
-                                className={`preset-swatch ${localSettings.primaryColor === preset.hex ? 'active' : ''}`}
-                                style={{ backgroundColor: preset.hex }}
-                                title={preset.name}
-                                onClick={() => setLocalSettings(prev => ({ ...prev, primaryColor: preset.hex }))}
-                              />
-                            ))}
-                          </div>
-                          
-                          <div className="color-picker-row margin-top-md">
-                            <div className="color-picker-input-wrapper">
-                              <input
-                                id="primaryColor"
-                                type="color"
-                                name="primaryColor"
-                                value={localSettings.primaryColor}
-                                onChange={handleInputChange}
-                              />
-                              <span className="color-preview-swatch" style={{ backgroundColor: localSettings.primaryColor }}></span>
-                            </div>
-                            <span className="color-hex-value">{localSettings.primaryColor}</span>
-                          </div>
-                        </div>
-                      </div>
+              <SettingsAppearanceTab
+                localSettings={localSettings}
+                handleInputChange={handleInputChange}
+                colorPresets={COLOR_PRESETS}
+                setLocalSettings={setLocalSettings}
+                isDraggingHero={isDraggingHero}
+                setIsDraggingHero={setIsDraggingHero}
+                handleHeroImagesDrop={handleHeroImagesDrop}
+                handleHeroImagesUpload={handleHeroImagesUpload}
+                removeHeroImage={removeHeroImage}
+                isDraggingDashboard={isDraggingDashboard}
+                setIsDraggingDashboard={setIsDraggingDashboard}
+                handleHeroBackgroundDrop={handleHeroBackgroundDrop}
+                handleHeroBackgroundUpload={handleHeroBackgroundUpload}
+                removeHeroBackground={removeHeroBackground}
+                isDraggingGallery={isDraggingGallery}
+                setIsDraggingGallery={setIsDraggingGallery}
+                handleFeaturedGalleryDrop={handleFeaturedGalleryDrop}
+                handleFeaturedGalleryUpload={handleFeaturedGalleryUpload}
+                removeFeaturedGalleryImage={removeFeaturedGalleryImage}
+                handleDragOver={handleDragOver}
+                handleDragLeave={handleDragLeave}
+              />
+            )}
 
-                      <div className="appearance-media-col">
-                        <label className="branding-label">Marketing & Landing Media</label>
-                        <div className="compact-media-grid">
-                          
-                          {/* Hero Images */}
-                          <div className="media-upload-item">
-                            <span className="media-item-title">Landing Hero Images</span>
-                            <div 
-                              className={`file-uploader-box compact ${isDraggingHero ? 'dragging' : ''}`}
-                              onDragOver={(e) => handleDragOver(e, setIsDraggingHero)}
-                              onDragLeave={(e) => handleDragLeave(e, setIsDraggingHero)}
-                              onDrop={handleHeroImagesDrop}
-                            >
-                              <input 
-                                type="file" 
-                                id="hero-images-upload"
-                                accept="image/*" 
-                                multiple 
-                                onChange={handleHeroImagesUpload} 
-                                className="file-input-hidden"
-                              />
-                              <label htmlFor="hero-images-upload" className="file-uploader-label compact-media">
-                                <svg className="upload-icon compact" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                                </svg>
-                                <span>Upload Images</span>
-                              </label>
-                            </div>
-                            
-                            {localSettings.heroImages && localSettings.heroImages.length > 0 && (
-                              <div className="compact-media-previews">
-                                {localSettings.heroImages.map((img, idx) => (
-                                  <div key={idx} className="compact-preview-card">
-                                    <img src={img} alt={`Hero ${idx}`} />
-                                    <button 
-                                      type="button"
-                                      onClick={() => removeHeroImage(idx)}
-                                      className="compact-delete-btn"
-                                      title="Remove"
-                                    >
-                                      &times;
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+            {/* ── DATA MANAGEMENT TAB ──────────────────────────────────── */}
+            {activeTab === 'data-management' && (
+              <SettingsDataManagementTab
+                handleExportBackup={handleExportBackup}
+                isExportingBackup={isExportingBackup}
+                fileInputRef={fileInputRef}
+                handleBackupFileSelect={handleBackupFileSelect}
+                handleRunIntegrityScan={handleRunIntegrityScan}
+                isScanningIntegrity={isScanningIntegrity}
+                integrityResults={integrityResults}
+              />
+            )}
 
-                          {/* Dashboard Background */}
-                          <div className="media-upload-item">
-                            <span className="media-item-title">Dashboard Background</span>
-                            <div 
-                              className={`file-uploader-box compact ${isDraggingDashboard ? 'dragging' : ''}`}
-                              onDragOver={(e) => handleDragOver(e, setIsDraggingDashboard)}
-                              onDragLeave={(e) => handleDragLeave(e, setIsDraggingDashboard)}
-                              onDrop={handleHeroBackgroundDrop}
-                            >
-                              <input 
-                                type="file" 
-                                id="dashboard-bg-upload"
-                                accept="image/*" 
-                                onChange={handleHeroBackgroundUpload} 
-                                className="file-input-hidden"
-                              />
-                              <label htmlFor="dashboard-bg-upload" className="file-uploader-label compact-media">
-                                <svg className="upload-icon compact" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                                </svg>
-                                <span>Set Background</span>
-                              </label>
-                            </div>
-                            
-                            {localSettings.heroBackground && (
-                              <div className="compact-media-previews single">
-                                <div className="compact-preview-card">
-                                  <img src={localSettings.heroBackground} alt="Dashboard Background" />
-                                  <button 
-                                    type="button"
-                                    onClick={removeHeroBackground}
-                                    className="compact-delete-btn"
-                                    title="Remove Background"
-                                  >
-                                    &times;
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Featured Gallery */}
-                          <div className="media-upload-item">
-                            <span className="media-item-title">Featured Landing Gallery</span>
-                            <div 
-                              className={`file-uploader-box compact ${isDraggingGallery ? 'dragging' : ''}`}
-                              onDragOver={(e) => handleDragOver(e, setIsDraggingGallery)}
-                              onDragLeave={(e) => handleDragLeave(e, setIsDraggingGallery)}
-                              onDrop={handleFeaturedGalleryDrop}
-                            >
-                              <input 
-                                type="file" 
-                                id="gallery-images-upload"
-                                accept="image/*" 
-                                multiple 
-                                onChange={handleFeaturedGalleryUpload} 
-                                className="file-input-hidden"
-                              />
-                              <label htmlFor="gallery-images-upload" className="file-uploader-label compact-media">
-                                <svg className="upload-icon compact" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                                </svg>
-                                <span>Upload Gallery</span>
-                              </label>
-                            </div>
-                            
-                            {localSettings.featuredGallery && localSettings.featuredGallery.length > 0 && (
-                              <div className="compact-media-previews">
-                                {localSettings.featuredGallery.map((img, idx) => (
-                                  <div key={idx} className="compact-preview-card">
-                                    <img src={img} alt={`Featured ${idx}`} />
-                                    <button 
-                                      type="button"
-                                      onClick={() => removeFeaturedGalleryImage(idx)}
-                                      className="compact-delete-btn"
-                                      title="Remove"
-                                    >
-                                      &times;
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            {/* ── AUDIT LOGS TAB ───────────────────────────────────────── */}
+            {activeTab === 'audit-logs' && (
+              <SettingsAuditLogsTab
+                handleExportAuditCSV={handleExportAuditCSV}
+                filteredAuditLogs={filteredAuditLogs}
+                auditSearch={auditSearch}
+                setAuditSearch={setAuditSearch}
+                auditCategoryFilter={auditCategoryFilter}
+                setAuditCategoryFilter={setAuditCategoryFilter}
+                auditSeverityFilter={auditSeverityFilter}
+                setAuditSeverityFilter={setAuditSeverityFilter}
+                auditCategories={AUDIT_CATEGORIES}
+                auditSeverity={AUDIT_SEVERITY}
+                selectedLogDetail={selectedLogDetail}
+                setSelectedLogDetail={setSelectedLogDetail}
+              />
             )}
           </div>
 
@@ -945,37 +796,29 @@ const SettingsPage = () => {
         </main>
       </div>
 
-      {/* Confirmation Modal */}
-      {showResetModal && (
-        <div className="modal-backdrop">
-          <div className="modal-window">
-            <div className="modal-warning-header">
-              <span className="modal-warning-icon">⚠️</span>
-              <h3>Confirm Reset Defaults</h3>
-            </div>
-            <div className="modal-body">
-              <p>Are you sure you want to restore default configurations? This action will overwrite all customization data (school name, email, addresses, modules, logo, and active backgrounds) instantly.</p>
-              <p className="modal-subtext">This action cannot be undone once confirmed.</p>
-            </div>
-            <div className="modal-footer">
-              <button 
-                type="button" 
-                className="modal-cancel-btn" 
-                onClick={() => setShowResetModal(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                type="button" 
-                className="modal-confirm-btn" 
-                onClick={handleConfirmReset}
-              >
-                Yes, Restore Defaults
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Confirmation Reset Modal */}
+      <SettingsResetModal
+        showResetModal={showResetModal}
+        setShowResetModal={setShowResetModal}
+        handleConfirmReset={handleConfirmReset}
+      />
+
+      {/* Restore Snapshot Modal */}
+      <SettingsRestoreModal
+        showRestoreModal={showRestoreModal}
+        backupPreview={backupPreview}
+        selectedRestoreCollections={selectedRestoreCollections}
+        setSelectedRestoreCollections={setSelectedRestoreCollections}
+        isRestoring={isRestoring}
+        restoreProgress={restoreProgress}
+        restoreConfirmationText={restoreConfirmationText}
+        setRestoreConfirmationText={setRestoreConfirmationText}
+        setShowRestoreModal={setShowRestoreModal}
+        setBackupPreview={setBackupPreview}
+        fileInputRef={fileInputRef}
+        handleExecuteRestore={handleExecuteRestore}
+      />
+
     </div>
   );
 };

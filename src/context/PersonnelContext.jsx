@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { adminAuth, db } from '../firebase';
-import { collection, doc, onSnapshot, query, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, updateDoc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { useAuth } from './AuthContext';
-import { preparePersonnelForSave } from '../utils/personnelName';
+import { preparePersonnelForSave, normalizePersonnelRecord } from '../utils/personnelName';
+import { logAuditEvent, AUDIT_CATEGORIES, AUDIT_SEVERITY } from '../utils/auditLogger';
 
 const PersonnelContext = createContext(null);
 
@@ -45,7 +46,7 @@ export const PersonnelProvider = ({ children }) => {
     );
 
     return () => unsubscribe();
-  }, [user]); // Re-run effect when user changes
+  }, [user]);
 
   // Fetch custom fields schema from Firestore settings/teacherFields
   useEffect(() => {
@@ -71,6 +72,15 @@ export const PersonnelProvider = ({ children }) => {
       const docRef = doc(db, 'settings', 'teacherFields');
       await setDoc(docRef, { fields: newFields });
       console.log('Saved custom fields config to Firestore');
+
+      logAuditEvent({
+        action: 'PERSONNEL_CONFIG_UPDATED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Updated custom personnel profile fields configuration.`,
+        severity: AUDIT_SEVERITY.INFO,
+        actor: user
+      });
+
       return { success: true };
     } catch (e) {
       console.error('Error saving custom fields config:', e);
@@ -91,117 +101,270 @@ export const PersonnelProvider = ({ children }) => {
       const oldSections = oldPerson?.assignedSections || [];
       const newSections = updatedPerson.assignedSections || [];
 
-      const added = newSections.filter(s => !oldSections.includes(s));
-      const removed = oldSections.filter(s => !newSections.includes(s));
+      const added = newSections.filter(sId => !oldSections.includes(sId));
+      const removed = oldSections.filter(sId => !newSections.includes(sId));
 
-      const displayName = `${updatedPerson.lastName}, ${updatedPerson.firstName}${updatedPerson.nameExtension ? ' ' + updatedPerson.nameExtension : ''}`;
-
-      // Handle added sections
-      for (const sectionId of added) {
-        const sectionRef = doc(db, 'sections', sectionId);
-        await updateDoc(sectionRef, {
-          adviserId: updatedPerson.id,
-          adviserName: displayName
-        });
-
-        // If another teacher previously advised this section, remove it from their assignedSections
-        const previousAdviser = personnel.find(p => p.id !== updatedPerson.id && (p.assignedSections || []).includes(sectionId));
-        if (previousAdviser) {
-          const updatedPrevSections = (previousAdviser.assignedSections || []).filter(s => s !== sectionId);
-          await updateDoc(doc(db, 'users', previousAdviser.id), {
-            assignedSections: updatedPrevSections
-          });
-        }
+      for (const sId of added) {
+        const secRef = doc(db, 'sections', sId);
+        await updateDoc(secRef, { adviserId: updatedPerson.id });
       }
 
-      // Handle removed sections
-      for (const sectionId of removed) {
-        const sectionRef = doc(db, 'sections', sectionId);
-        await updateDoc(sectionRef, {
-          adviserId: '',
-          adviserName: ''
-        });
+      for (const sId of removed) {
+        const secRef = doc(db, 'sections', sId);
+        await updateDoc(secRef, { adviserId: '' });
       }
+
+      logAuditEvent({
+        action: 'PERSONNEL_UPDATED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Updated profile for faculty "${payload.lastName}, ${payload.firstName}" (ID: ${updatedPerson.id})`,
+        severity: AUDIT_SEVERITY.INFO,
+        targetId: updatedPerson.id,
+        actor: user
+      });
+
+      return { success: true };
     } catch (e) {
       console.error('Error updating personnel:', e);
       setError('Failed to update personnel.');
+      return { success: false, error: e.message };
     }
   };
 
-  const addPersonnel = async (newPersonData, password) => {
+  const addPersonnel = async (newPerson) => {
     try {
-      // 1. Create the user in Firebase Auth using the secondary instance
-      const userCredential = await createUserWithEmailAndPassword(adminAuth, newPersonData.email, password);
-      const newUser = userCredential.user;
-      
-      // 2. Prepare the Firestore document with the new UID
-      const prepared = preparePersonnelForSave(newPersonData);
-      const personnelDoc = {
-        ...prepared,
-        id: newUser.uid,
-        createdAt: new Date().toISOString()
-      };
-      // Remove password from Firestore data
-      delete personnelDoc.password;
-
-      // 3. Add the personnel data to Firestore
-      const personnelRef = doc(db, 'users', newUser.uid);
-      await setDoc(personnelRef, personnelDoc);
-      
-      // 4. Sign out from the secondary instance to keep it clean
+      const { email, password, role = 'teacher', ...rest } = newPerson;
+      const userCredential = await createUserWithEmailAndPassword(adminAuth, email, password);
+      const newUserId = userCredential.user.uid;
       await signOut(adminAuth);
-      
-      console.log('Personnel added to Auth and Firestore:', newUser.uid);
-      return { success: true };
+
+      const payload = preparePersonnelForSave({
+        ...rest,
+        email,
+        role,
+        id: newUserId,
+        createdAt: new Date().toISOString()
+      });
+
+      const userDocRef = doc(db, 'users', newUserId);
+      await setDoc(userDocRef, payload);
+
+      if (newPerson.assignedSections && newPerson.assignedSections.length > 0) {
+        for (const sId of newPerson.assignedSections) {
+          const secRef = doc(db, 'sections', sId);
+          await updateDoc(secRef, { adviserId: newUserId });
+        }
+      }
+
+      logAuditEvent({
+        action: 'PERSONNEL_CREATED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Created new staff account "${payload.lastName}, ${payload.firstName}" (${payload.email}) with role [${role}]`,
+        severity: AUDIT_SEVERITY.INFO,
+        targetId: newUserId,
+        actor: user
+      });
+
+      return { success: true, id: newUserId };
     } catch (e) {
       console.error('Error adding personnel:', e);
-      setError(e.message);
+      setError(e.message || 'Failed to create personnel account.');
       return { success: false, error: e.message };
     }
   };
 
   const deletePersonnel = async (id) => {
     try {
-      // Find all sections advised by this teacher and clear them
-      const advisedSections = personnel.find(p => p.id === id)?.assignedSections || [];
-      for (const sectionId of advisedSections) {
-        await updateDoc(doc(db, 'sections', sectionId), {
-          adviserId: '',
-          adviserName: ''
-        });
+      const personToDelete = personnel.find(p => p.id === id);
+      const userDocRef = doc(db, 'users', id);
+      await deleteDoc(userDocRef);
+
+      const qSec = query(collection(db, 'sections'));
+      const secSnap = await getDocs(qSec);
+      for (const sDoc of secSnap.docs) {
+        if (sDoc.data().adviserId === id) {
+          await updateDoc(doc(db, 'sections', sDoc.id), { adviserId: '' });
+        }
       }
 
-      // NOTE: This only deletes the Firestore document.
-      // The Firebase Auth account will persist. In production,
-      // use a Cloud Function with admin SDK to also delete the Auth account:
-      //   admin.auth().deleteUser(id)
-      const personnelRef = doc(db, 'users', id);
-      await deleteDoc(personnelRef);
-      console.log('Personnel deleted from Firestore:', id);
+      logAuditEvent({
+        action: 'PERSONNEL_DELETED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Deleted personnel account for "${personToDelete?.lastName || ''}, ${personToDelete?.firstName || ''}" (ID: ${id})`,
+        severity: AUDIT_SEVERITY.WARNING,
+        targetId: id,
+        actor: user
+      });
+
+      return { success: true };
     } catch (e) {
       console.error('Error deleting personnel:', e);
       setError('Failed to delete personnel.');
+      return { success: false, error: e.message };
     }
   };
 
+  // Add Training / INSET Record
+  const addTrainingRecord = async (personnelId, trainingData) => {
+    try {
+      const person = personnel.find(p => p.id === personnelId);
+      if (!person) throw new Error('Personnel not found');
+
+      const userDocRef = doc(db, 'users', personnelId);
+      const newTraining = {
+        id: `tr-${Date.now()}`,
+        title: trainingData.title || '',
+        level: trainingData.level || 'School',
+        hours: parseFloat(trainingData.hours) || 0,
+        startDate: trainingData.startDate || '',
+        endDate: trainingData.endDate || '',
+        conductedBy: trainingData.conductedBy || 'DepEd',
+        recordedAt: new Date().toISOString()
+      };
+
+      const existingTrainings = person.trainings || [];
+      const updatedTrainings = [newTraining, ...existingTrainings];
+
+      await updateDoc(userDocRef, { trainings: updatedTrainings });
+
+      logAuditEvent({
+        action: 'PERSONNEL_TRAINING_ADDED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Logged training record "${newTraining.title}" (${newTraining.hours} hrs) for faculty ID: ${personnelId}`,
+        severity: AUDIT_SEVERITY.INFO,
+        targetId: personnelId,
+        actor: user
+      });
+
+      return { success: true, training: newTraining };
+    } catch (e) {
+      console.error('Error adding training record:', e);
+      return { success: false, error: e.message };
+    }
+  };
+
+  // Delete Training / INSET Record
+  const deleteTrainingRecord = async (personnelId, trainingId) => {
+    try {
+      const person = personnel.find(p => p.id === personnelId);
+      if (!person) throw new Error('Personnel not found');
+
+      const userDocRef = doc(db, 'users', personnelId);
+      const existingTrainings = person.trainings || [];
+      const updatedTrainings = existingTrainings.filter(t => t.id !== trainingId);
+
+      await updateDoc(userDocRef, { trainings: updatedTrainings });
+
+      logAuditEvent({
+        action: 'PERSONNEL_TRAINING_DELETED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Removed training record ${trainingId} for faculty ID: ${personnelId}`,
+        severity: AUDIT_SEVERITY.INFO,
+        targetId: personnelId,
+        actor: user
+      });
+
+      return { success: true };
+    } catch (e) {
+      console.error('Error deleting training record:', e);
+      return { success: false, error: e.message };
+    }
+  };
+
+  // Batch Update Position
+  const batchUpdatePosition = async (personnelIds, newPosition) => {
+    try {
+      const batch = writeBatch(db);
+      for (const id of personnelIds) {
+        const userRef = doc(db, 'users', id);
+        batch.update(userRef, { position: newPosition });
+      }
+      await batch.commit();
+
+      logAuditEvent({
+        action: 'PERSONNEL_BULK_POSITION_UPDATED',
+        category: AUDIT_CATEGORIES.PERSONNEL,
+        details: `Updated position for ${personnelIds.length} staff to "${newPosition}"`,
+        severity: AUDIT_SEVERITY.INFO,
+        metadata: { count: personnelIds.length, newPosition },
+        actor: user
+      });
+
+      return { success: true };
+    } catch (e) {
+      console.error('Error batch updating position:', e);
+      return { success: false, error: e.message };
+    }
+  };
+
+  const migratePersonnelCasing = async () => {
+    let updated = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (const p of personnel) {
+      try {
+        const prepared = preparePersonnelForSave(p);
+        const needsUpdate =
+          prepared.lastName !== (p.lastName || '') ||
+          prepared.firstName !== (p.firstName || '') ||
+          prepared.middleName !== (p.middleName || '') ||
+          prepared.nameExtension !== (p.nameExtension || '') ||
+          prepared.position !== (p.position || '') ||
+          prepared.employeeNumber !== (p.employeeNumber || '');
+
+        if (!needsUpdate) {
+          skipped++;
+          continue;
+        }
+
+        const userDocRef = doc(db, 'users', p.id);
+        await updateDoc(userDocRef, {
+          lastName: prepared.lastName,
+          firstName: prepared.firstName,
+          middleName: prepared.middleName,
+          nameExtension: prepared.nameExtension,
+          position: prepared.position,
+          employeeNumber: prepared.employeeNumber,
+        });
+
+        updated++;
+      } catch (err) {
+        errors.push(`${p.id} (${p.email || 'no email'}): ${err.message}`);
+      }
+    }
+
+    logAuditEvent({
+      action: 'PERSONNEL_CASING_MIGRATION',
+      category: AUDIT_CATEGORIES.PERSONNEL,
+      details: `Migrated casing for ${updated} records (${skipped} skipped).`,
+      severity: AUDIT_SEVERITY.INFO,
+      actor: user
+    });
+
+    return { updated, skipped, errors };
+  };
+
+  const contextValue = useMemo(() => ({
+    personnel, 
+    loading, 
+    error, 
+    customFieldsConfig, 
+    saveCustomFieldsConfig,
+    updatePersonnel, 
+    addPersonnel, 
+    deletePersonnel,
+    addTrainingRecord,
+    deleteTrainingRecord,
+    batchUpdatePosition,
+    migratePersonnelCasing
+  }), [personnel, loading, error, customFieldsConfig, user]);
+
   return (
-    <PersonnelContext.Provider value={{ 
-      personnel, 
-      loading, 
-      error, 
-      customFieldsConfig, 
-      saveCustomFieldsConfig, 
-      updatePersonnel, 
-      addPersonnel, 
-      deletePersonnel 
-    }}>
+    <PersonnelContext.Provider value={contextValue}>
       {children}
     </PersonnelContext.Provider>
   );
 };
 
-export const usePersonnel = () => {
-  const context = useContext(PersonnelContext);
-  if (!context) throw new Error('usePersonnel must be used within a PersonnelProvider');
-  return context;
-};
+export const usePersonnel = () => useContext(PersonnelContext);

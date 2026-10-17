@@ -1,0 +1,96 @@
+.empty-state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 3.5rem 2rem;
+  background: var(--bg-card, #ffffff);
+  border-radius: var(--radius-md, 12px);
+  border: 1px dashed var(--gray-300, #cbd5e1);
+  margin: 1.5rem 0;
+  transition: all 0.25s ease-in-out;
+}
+
+body.dark .empty-state-container {
+  background: var(--bg-card-dark, #1e293b);
+  border-color: #334155;
+}
+
+.empty-state-container.compact {
+  padding: 2rem 1.5rem;
+  margin: 0.75rem 0;
+}
+
+.empty-state-icon-wrapper {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(45, 48, 128, 0.08) 0%, rgba(99, 102, 241, 0.12) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 14px rgba(45, 48, 128, 0.08);
+}
+
+body.dark .empty-state-icon-wrapper {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.2) 100%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.empty-state-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-main, #0f172a);
+  margin: 0 0 0.5rem 0;
+}
+
+body.dark .empty-state-title {
+  color: #f8fafc;
+}
+
+.empty-state-description {
+  font-size: 0.925rem;
+  color: var(--text-muted, #64748b);
+  max-width: 440px;
+  line-height: 1.55;
+  margin: 0 0 1.5rem 0;
+}
+
+body.dark .empty-state-description {
+  color: #94a3b8;
+}
+
+.empty-state-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.empty-state-action-btn {
+  padding: 0.55rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm, 8px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.empty-state-table-cell {
+  padding: 3rem 1.5rem !important;
+  text-align: center;
+}
+
+.empty-state-table-cell .empty-state-container {
+  border: none;
+  background: transparent;
+  padding: 1rem;
+  margin: 0;
+}

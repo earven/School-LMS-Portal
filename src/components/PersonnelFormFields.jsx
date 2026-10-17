@@ -13,8 +13,26 @@ const PersonnelFormFields = ({
 }) => {
   const handleChange = (e) => {
     const { name, value } = e.target;
-    onChange({ ...formData, [name]: value });
+    let finalValue = value;
+    if (
+      ['firstName', 'lastName', 'middleName', 'nameExtension', 'employeeNumber', 'position', 'assignedReports'].includes(name)
+    ) {
+      finalValue = value.toUpperCase();
+    }
+    onChange({ ...formData, [name]: finalValue });
   };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    // Ensure position is fully uppercased when user leaves the field
+    if (name === 'position') {
+      const uppercased = value.toUpperCase();
+      if (uppercased !== value) {
+        onChange({ ...formData, [name]: uppercased });
+      }
+    }
+  };
+
 
   const toggleArrayItem = (field, item) => {
     const current = formData[field] || [];
@@ -98,15 +116,28 @@ const PersonnelFormFields = ({
       </div>
 
       <div className="form-group">
+        <label>Employee Number</label>
+        <input
+          type="text"
+          name="employeeNumber"
+          value={formData.employeeNumber || ''}
+          onChange={handleChange}
+          placeholder="e.g. EMP-2026-001"
+        />
+      </div>
+
+      <div className="form-group">
         <label>Position</label>
         <input
           type="text"
           name="position"
           value={formData.position || ''}
           onChange={handleChange}
+          onBlur={handleBlur}
           placeholder="e.g. Teacher II"
         />
       </div>
+
 
       <div className="form-group">
         <label>Role</label>

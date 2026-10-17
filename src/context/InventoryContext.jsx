@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
@@ -126,7 +126,7 @@ export const InventoryProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     items,
     masterItems,
     loading,
@@ -136,7 +136,7 @@ export const InventoryProvider = ({ children }) => {
     addMasterItem,
     updateMasterItem,
     deleteMasterItem
-  };
+  }), [items, masterItems, loading]);
 
   return (
     <InventoryContext.Provider value={value}>

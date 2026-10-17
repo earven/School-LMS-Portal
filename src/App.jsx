@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/Layout';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { NotificationProvider } from './context/NotificationContext.jsx';
@@ -12,6 +12,7 @@ import { TeachingLoadProvider } from './context/TeachingLoadContext.jsx';
 import { AttendanceProvider } from './context/AttendanceContext.jsx';
 import { CalendarProvider } from './context/CalendarContext.jsx';
 import { InventoryProvider } from './context/InventoryContext.jsx';
+import { MessagingProvider } from './context/MessagingContext.jsx';
 import './App.css';
 import SessionTimeout from './components/SessionTimeout';
 
@@ -27,7 +28,7 @@ const SubmissionTracker = lazy(() => import('./pages/TeacherTools/SubmissionTrac
 const EFilers = lazy(() => import('./pages/TeacherTools/EFilers'));
 const AttendanceTracker = lazy(() => import('./pages/TeacherTools/AttendanceTracker'));
 const TeacherAttendance = lazy(() => import('./pages/TeacherTools/TeacherAttendance'));
-const AcademicRecords = lazy(() => import('./pages/TeacherTools/AcademicRecords'));
+const AcademicRecordTracker = lazy(() => import('./pages/TeacherTools/AcademicRecordTracker'));
 const EnrolmentLister = lazy(() => import('./pages/TeacherTools/EnrolmentLister'));
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
@@ -40,33 +41,62 @@ const CalendarPage = lazy(() => import('./pages/CalendarPage.jsx'));
 const InventoryPage = lazy(() => import('./pages/TeacherTools/InventoryPage.jsx'));
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'));
 const JoinSchoolPage = lazy(() => import('./pages/JoinSchoolPage'));
+const LearningResourcesPage = lazy(() => import('./pages/TeacherTools/LearningResourcesPage'));
+const MemoStocker = lazy(() => import('./pages/TeacherTools/MemoStocker'));
+const ComputerLabLogPage = lazy(() => import('./pages/TeacherTools/ComputerLabLogPage'));
+const MessagingPage = lazy(() => import('./pages/MessagingPage'));
 
-const PageLoader = () => (
-  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-    <div className="spinner" style={{ border: '4px solid rgba(0,0,0,0.1)', width: '36px', height: '36px', borderRadius: '50%', borderLeftColor: '#09f', animation: 'spin 1s linear infinite' }}></div>
-    <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-  </div>
-);
+import ProtectedRoute, { PageLoader } from './components/ProtectedRoute';
+import ReloadPrompt from './components/ReloadPrompt';
+import OfflineIndicator from './components/OfflineIndicator';
+import ErrorBoundary from './components/ErrorBoundary';
 
-const ProtectedRoute = ({ element, allowedRoles }) => {
-  const { user, loading } = useAuth();
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/join" element={<JoinSchoolPage />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
 
-  if (loading) {
-    return <PageLoader />;
-  }
+      {/* Authenticated Routes sharing a single persistent Layout */}
+      <Route element={<ProtectedRoute allowedRoles={['admin', 'system_admin', 'teacher']}><Layout /></ProtectedRoute>}>
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/announcements" element={<AnnouncementsPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/personnel">
+          <Route index element={<PersonnelPage />} />
+          <Route path="configure-fields" element={<ProtectedRoute allowedRoles={['admin', 'system_admin']}><PersonnelFieldsConfigPage /></ProtectedRoute>} />
+          <Route path="new" element={<ProtectedRoute allowedRoles={['admin', 'system_admin']}><PersonnelDetailPage mode="edit" /></ProtectedRoute>} />
+          <Route path=":personnelId" element={<PersonnelDetailPage mode="view" />} />
+          <Route path=":personnelId/edit" element={<PersonnelDetailPage mode="edit" />} />
+        </Route>
+        <Route path="/teacher-tools">
+          <Route index element={<TeacherToolsHub />} />
+          <Route path="submissions" element={<SubmissionProvider><SubmissionTracker /></SubmissionProvider>} />
+          <Route path="teaching-load" element={<TeachingLoadProvider><TeachingLoadPage /></TeachingLoadProvider>} />
+          <Route path="load-generator" element={<ProtectedRoute allowedRoles={['admin', 'system_admin']}><TeachingLoadGeneratorPage /></ProtectedRoute>} />
+          <Route path="e-filers" element={<EFilers />} />
+          <Route path="attendance" element={<AttendanceTracker />} />
+          <Route path="teacher-attendance" element={<TeacherAttendance />} />
+          <Route path="academic-record-tracker" element={<ProtectedRoute allowedRoles={['admin', 'system_admin']}><AcademicRecordTracker /></ProtectedRoute>} />
+          <Route path="inventory" element={<InventoryProvider><InventoryPage /></InventoryProvider>} />
+          <Route path="enrolment-lister" element={<EnrolmentLister />} />
+          <Route path="learning-resources" element={<LearningResourcesPage />} />
+          <Route path="memo-stocker" element={<MemoStocker />} />
+          <Route path="computer-lab-log" element={<ComputerLabLogPage />} />
+        </Route>
+        <Route path="/students" element={<StudentsPage />} />
+        <Route path="/settings" element={<ProtectedRoute allowedRoles={['admin', 'system_admin']}><SettingsPage /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/sections" element={<SectionsPage />} />
+        <Route path="/messages" element={<MessagingPage />} />
+      </Route>
 
-  if (!user || !user.role) {
-    if (user) console.warn("User is authenticated but missing a 'role' in Firestore.");
-    return <Navigate to="/login" replace />;
-  }
-
-  if (user.role === 'pending') {
-    return <Navigate to="/join" replace />;
-  }
-
-  if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/dashboard" replace />;
-  return element;
-};
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
+  );
+}
 
 function App() {
   return (
@@ -76,69 +106,23 @@ function App() {
           <PersonnelProvider>
             <StudentProvider>
               <SectionProvider>
-                <SubmissionProvider>
-                <TeachingLoadProvider>
                 <AttendanceProvider>
                 <CalendarProvider>
-                <InventoryProvider>
+                <MessagingProvider>
                   <Router>
+                    <OfflineIndicator />
+                    <ReloadPrompt />
                     <SessionTimeout timeoutMinutes={15}>
-                      <Suspense fallback={<PageLoader />}>
-                        <Routes>
-                          <Route path="/login" element={<LoginPage />} />
-                          <Route path="/" element={<LandingPage />} />
-                          <Route path="/join" element={<JoinSchoolPage />} />
-                          <Route path="/dashboard" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<DashboardPage />} />
-                          </Route>
-                          <Route path="/announcements" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<AnnouncementsPage />} />
-                          </Route>
-                          <Route path="/calendar" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<CalendarPage />} />
-                          </Route>
-                          <Route path="/personnel" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<PersonnelPage />} />
-                            <Route path="configure-fields" element={<PersonnelFieldsConfigPage />} />
-                            <Route path="new" element={<PersonnelDetailPage mode="edit" />} />
-                            <Route path=":personnelId" element={<PersonnelDetailPage mode="view" />} />
-                            <Route path=":personnelId/edit" element={<PersonnelDetailPage mode="edit" />} />
-                          </Route>
-                          <Route path="/teacher-tools" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<TeacherToolsHub />} />
-                            <Route path="submissions" element={<SubmissionTracker />} />
-                            <Route path="teaching-load" element={<TeachingLoadPage />} />
-                            <Route path="load-generator" element={<ProtectedRoute element={<TeachingLoadGeneratorPage />} allowedRoles={['admin', 'system_admin']} />} />
-                            <Route path="e-filers" element={<EFilers />} />
-                            <Route path="attendance" element={<AttendanceTracker />} />
-                            <Route path="teacher-attendance" element={<TeacherAttendance />} />
-                            <Route path="data" element={<AcademicRecords />} />
-                            <Route path="inventory" element={<InventoryPage />} />
-                            <Route path="enrolment-lister" element={<EnrolmentLister />} />
-                          </Route>
-                          <Route path="/students" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<StudentsPage />} />
-                          </Route>
-                          <Route path="/settings" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin']} />}>
-                            <Route index element={<SettingsPage />} />
-                          </Route>
-                          <Route path="/profile" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<ProfilePage />} />
-                          </Route>
-                          <Route path="/sections" element={<ProtectedRoute element={<Layout />} allowedRoles={['admin', 'system_admin', 'teacher']} />}>
-                            <Route index element={<SectionsPage />} />
-                          </Route>
-                          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-                          <Route path="*" element={<NotFoundPage />} />
-                        </Routes>
-                      </Suspense>
+                      <ErrorBoundary>
+                        <Suspense fallback={<PageLoader />}>
+                          <AppRoutes />
+                        </Suspense>
+                      </ErrorBoundary>
                     </SessionTimeout>
                   </Router>
-                </InventoryProvider>
+                </MessagingProvider>
                 </CalendarProvider>
                 </AttendanceProvider>
-                </TeachingLoadProvider>
-              </SubmissionProvider>
               </SectionProvider>
             </StudentProvider>
           </PersonnelProvider>
