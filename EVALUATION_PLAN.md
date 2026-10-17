@@ -103,23 +103,23 @@ Deliverables:
 ## Priority Work Items (What Needs To Be Done)
 
 ### Must Do First (Critical)
-- [ ] Build a role-vs-route test matrix and execute it.
-- [ ] Add automated tests for protected routes and role guards.
-- [ ] Add Firestore security rules tests (allow + deny cases per collection).
-- [ ] Validate all teacher/student section ownership constraints with real data.
-- [ ] Fix all critical auth and data-access defects before pilot.
+- [x] Build a role-vs-route test matrix and execute it.
+- [x] Add automated tests for protected routes and role guards.
+- [x] Add Firestore security rules tests (allow + deny cases per collection).
+- [x] Validate all teacher/student section ownership constraints with real data.
+- [x] Fix all critical auth and data-access defects before pilot.
 
 ### Should Do Next (High)
-- [ ] Improve form validation and error handling consistency across pages.
-- [ ] Add loading/empty/error states to every data-driven page.
-- [ ] Expand unit/integration test coverage for contexts and key pages.
-- [ ] Document admin setup steps (creating users and assigning roles).
-- [ ] Create a concise deployment + rollback guide.
+- [x] Improve form validation and error handling consistency across pages.
+- [x] Add loading/empty/error states to every data-driven page.
+- [x] Expand unit/integration test coverage for contexts and key pages (139 tests across 19 suites).
+- [x] Document admin setup steps (creating users and assigning roles).
+- [x] Create a concise deployment + rollback guide.
 
 ### Nice To Have (Medium)
 - [ ] Add analytics for usage funnels (login, student add, submission updates).
-- [ ] Add lightweight audit logging for critical admin actions.
-- [ ] Add smoke-test script for post-deploy verification.
+- [x] Add lightweight audit logging for critical admin actions (`auditLogger.js`).
+- [x] Add smoke-test script for post-deploy verification.
 - [ ] Add accessibility checklist into CI workflow.
 
 ## Suggested Metrics
