@@ -74,6 +74,26 @@
   - **Calendar (`CalendarPage.jsx`)**: Connected `EmptyState` to Agenda view with "+ Schedule Event" or filter clearing.
 - **Verification**: **All 19 test suites (139 tests)** pass cleanly. Production build (`tsc -b && vite build`) compiles with zero errors.
 
+### 7. Phase 7 — Firebase Deployment Hardening & Hosting Optimization (COMPLETED ✅)
+- **Firestore Indexes (`firestore.indexes.json`)**:
+  - Defined composite indexes for complex multi-field production queries:
+    - `conversations`: `members` (ARRAY_CONTAINS) + `lastMessageAt` (DESC)
+    - `audit_logs`: `category` (ASC) + `timestamp` (DESC)
+    - `inventory`: `assignedTo` (ASC) + `createdAt` (DESC)
+    - `notifications`: `recipientId` (ASC) + `createdAt` (DESC)
+- **Storage Rules (`storage.rules`)**:
+  - Enforced `isAdmin()` via Firestore cross-service checks (`firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'system_admin']`) for system-wide branding assets in `settings/`.
+  - Restricted avatar uploads in `avatars/{userId}/` to owner (`isOwner(userId)`) or admin.
+- **Hosting Headers & Caching Strategy (`firebase.json`)**:
+  - **PWA Service Worker & Workbox**: `/sw.js` and `/workbox-*.js` served with `Cache-Control: no-cache, no-store, must-revalidate` to ensure instant client PWA updates on new deploys.
+  - **SPA Entry & Manifest**: `/index.html` and `/manifest.webmanifest` served with `no-cache, no-store, must-revalidate` to avoid stale chunk mismatches.
+  - **Hashed Assets**: `/assets/**` fingerprinted chunks served with `Cache-Control: public, max-age=31536000, immutable`.
+  - **Security Headers**: Injected `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 1; mode=block`, and `Referrer-Policy: strict-origin-when-cross-origin` on all routes.
+- **Convenience Deploy Scripts (`package.json`)**:
+  - `npm run deploy`: Full build and deploy across Hosting, Rules, Indexes, and Storage.
+  - `npm run deploy:rules`: Deploys only Firestore rules, indexes, and Storage rules.
+  - `npm run deploy:hosting`: Builds production bundle and deploys Hosting static assets.
+
 ---
 
 ## 🛠️ Key Reference Commands
@@ -87,4 +107,10 @@ npm run build
 
 # Start local development server
 npm run dev
+
+# Deploy to Firebase (Rules & Indexes only)
+npm run deploy:rules
+
+# Deploy complete application to Firebase
+npm run deploy
 ```
